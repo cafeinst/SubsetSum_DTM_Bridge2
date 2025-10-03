@@ -17,194 +17,200 @@ proof -
   define x where [simp]: "x = x0 as s"
   define T where [simp]: "T = T0 as s"
 
-  (* x is the canonical encoding, so the “T0 subset read0” lemmas apply *)
-  have x_enc[simp]: "x = enc as s kk" by simp
-
-  (* run/drive bridge *)
+  (* bridge *)
   have RUN0:
     "final_acc (drive (steps M x) (conf M x 0) oL) = run oL ((!) x) T"
     by (simp add: run_drive_T0)
 
-  (* What may be read *)
-  define may_read :: "nat set"
-    where "may_read ≡ Lset as s ∪ Rset as s"
+  (* may-read region *)
+  define may_read :: "nat set" where "may_read = Lset as s ∪ Rset as s"
 
-  (* Build y from oL but keep x outside may_read *)
-  define Y :: "nat ⇒ bool"
-    where "Y i = (if i ∈ may_read then oL i else x ! i)"
+  (* build y from oL on may_read, else keep x *)
+  define Y :: "nat ⇒ bool" where "Y i = (if i ∈ may_read then oL i else x ! i)"
   define y where "y = map Y [0..<length x]"
 
-  (* (x,y) orientation *)
-  have SL_sub_read0_xy:
+  (* seenL ((!) x) ((!) y) ⊆ read0 M x *)
+  have SL_xy:
     "seenL_run ((!) x) ((!) y) T ⊆ Base.read0 M x"
-    by (simp add: seenL_T0_subset_read0)
+    unfolding x_def T_def by (rule seenL_T0_subset_read0) simp
 
-  (* (y,x) orientation — this one is used later *)
-have SL_sub_read0_yx:
-  "seenL_run ((!) y) ((!) x) T ⊆ Base.read0 M x"
-  unfolding x_def T_def
-  by (simp add: x0_is_enc seenL_T0_subset_read0)
+  (* also for ((!) x) ((!) x) *)
+  have SL_xx:
+    "seenL_run ((!) x) ((!) x) T ⊆ Base.read0 M x"
+    unfolding x_def T_def by (rule seenL_T0_subset_read0) simp
 
-have SL_sub_read0_yx:
-  "seenL_run ((!) y) ((!) x) T ⊆ Base.read0 M x"
-  by (simp add: x_def T_def SL_sub_read0_yx0)
+  (* and seenR with left ((!) x) *)
+  have SR_xy:
+    "seenR_run ((!) x) ((!) y) T ⊆ Base.read0 M x"
+    unfolding x_def T_def by (rule seenR_T0_subset_read0) simp
+  have SR_xx:
+    "seenR_run ((!) x) ((!) x) T ⊆ Base.read0 M x"
+    unfolding x_def T_def by (rule seenR_T0_subset_read0) simp
 
-  (* size facts for windows *)
+  (* sizes *)
   have len_x[simp]:
     "length x = length (enc0 as s) + length (padL as s kk) + length (padR as s kk)"
     by (simp add: enc_def)
 
-  (* any read0 lies in may_read *)
+  (* read0 M x ⊆ may_read *)
   have read0_sub_may: "Base.read0 M x ⊆ may_read"
-    unfolding may_read_def
-    by (simp add: read0_subset_blocks_abs)
+    unfolding may_read_def by (simp add: read0_subset_blocks_abs)
 
-  (* indices in may_read are within bounds of x *)
-  have may_read_lt_len:
-    "⋀i. i ∈ may_read ⟹ i < length x"
+  (* indices in may_read lie within bounds of x *)
+  have may_read_lt_len: "⋀i. i ∈ may_read ⟹ i < length x"
   proof -
     fix i assume "i ∈ may_read"
-    hence "i ∈ Lset as s ∨ i ∈ Rset as s" by (simp add: may_read_def)
     then consider
       (L) j where "j < length (enumL as s kk)" and "i ∈ blockL_abs enc0 as s j"
     | (R) j where "j < length (enumR as s kk)" and "i ∈ blockR_abs enc0 as s kk j"
-      unfolding Lset_def Rset_def by auto
+      unfolding may_read_def Lset_def Rset_def by auto
     thus "i < length x"
     proof cases
       case (L j)
       let ?a = "length (enc0 as s) + offL as s j"
       let ?w = "W as s"
-      have blk: "blockL_abs enc0 as s j = {?a ..< ?a + ?w}"
-        by (simp add: blockL_abs_def offL_def)
       have top: "?a + ?w ≤ length x"
         using offL_window_in_enc[OF L(1)] by simp
-      from L(2) have "i ∈ {?a ..< ?a + ?w}" by (simp add: blk)
-      then have "i < ?a + ?w" by simp
+      from L(2) have "i < ?a + ?w"
+        by (simp add: blockL_abs_def offL_def)
       with top show ?thesis by linarith
     next
       case (R j)
       let ?a = "length (enc0 as s) + offR as s kk j"
       let ?w = "W as s"
-      have blk: "blockR_abs enc0 as s kk j = {?a ..< ?a + ?w}"
-        by (simp add: blockR_abs_def)
       have top: "?a + ?w ≤ length x"
         using offR_window_in_enc[OF R(1)] length_padL by simp
-      from R(2) have "i ∈ {?a ..< ?a + ?w}" by (simp add: blk)
-      then have "i < ?a + ?w" by simp
+      from R(2) have "i < ?a + ?w"
+        by (simp add: blockR_abs_def)
       with top show ?thesis by linarith
     qed
   qed
 
-  (* agree on what the left side actually sees *)
-  have agree_on_seenL:
+  (* what left actually sees along ((!) x, (!) y) *)
+  have agreeL_xy:
     "⋀i. i ∈ seenL_run ((!) x) ((!) y) T ⟹ y ! i = oL i"
   proof -
     fix i assume iSL: "i ∈ seenL_run ((!) x) ((!) y) T"
-    from SL_sub_read0_xy iSL have iR0: "i ∈ Base.read0 M x" by blast
-    from read0_sub_may iR0 have iMay: "i ∈ may_read" by blast
-    from may_read_lt_len iMay have iLt: "i < length x" .
+    have iR0: "i ∈ Base.read0 M x" using SL_xy iSL by blast
+    have iMay: "i ∈ may_read" using read0_sub_may iR0 by (rule subsetD)
+    have iLt:  "i < length x" using iMay may_read_lt_len by blast
     have "y ! i = (map Y [0..<length x]) ! i" by (simp add: y_def)
-    also from iLt have "... = Y i" by simp
-    also from iMay have "... = oL i" by (simp add: Y_def)
+    also have "... = Y i" using iLt by simp
+    also have "... = oL i"
+      using iMay Y_def
+      by (simp add: ‹Y ≡ λi. if i ∈ may_read then oL i else x ! i›)
     finally show "y ! i = oL i" .
   qed
 
-  (* normalize Good on the left windows *)
+  (* normalize Good on left windows *)
   have Good_normalize:
     "Good as s ((!) y) ((!) x) = Good as s oL ((!) x)"
   proof -
-    have Lwin_eq:
-      "⋀j. j < length (enumL as s kk) ⟹
-         Lval_at as s ((!) y) j = Lval_at as s oL j"
+    have Lslice:
+  "⋀j. j < length (enumL as s kk) ⟹
+        map ((!) y)
+          [length (enc0 as s) + offL as s j
+           ..< length (enc0 as s) + offL as s j + W as s]
+      = map oL
+          [length (enc0 as s) + offL as s j
+           ..< length (enc0 as s) + offL as s j + W as s]"
     proof -
       fix j assume jL: "j < length (enumL as s kk)"
       let ?a = "length (enc0 as s) + offL as s j"
       let ?w = "W as s"
-      have blk: "blockL_abs enc0 as s j = {?a ..< ?a + ?w}"
-        by (simp add: blockL_abs_def offL_def)
-      have ALe: "?a + ?w ≤ length x"
-        using offL_window_in_enc[OF jL] by simp
-      have slice_eq:
-        "map ((!) y) [?a ..< ?a + ?w] = map oL [?a ..< ?a + ?w]"
+      show "map ((!) y) [?a ..< ?a + ?w] = map oL [?a ..< ?a + ?w]"
       proof (rule nth_equalityI)
         show "length (map ((!) y) [?a..< ?a+?w]) =
-              length (map oL       [?a..< ?a+?w])" by simp
+          length (map oL       [?a..< ?a+?w])" by simp
       next
         fix t assume "t < length (map ((!) y) [?a..< ?a+?w])"
         then have tw: "t < ?w" by simp
         have idx: "[?a..< ?a+?w] ! t = ?a + t" using tw by simp
-        have AT: "?a + t < length x" using ALe tw by linarith
+
+    (* 1) First show it's inside the j-th L block *)
+        have in_blk: "?a + t ∈ blockL_abs enc0 as s j"
+          using tw by (simp add: blockL_abs_def offL_def)
+
+    (* 2) Then lift that to may_read via Lset *)
         have in_may: "?a + t ∈ may_read"
-        proof -
-          have mem: "?a + t ∈ blockL_abs enc0 as s j" by (simp add: blk tw)
-          have fam: "blockL_abs enc0 as s j
-                       ∈ (blockL_abs enc0 as s ` {..<length (enumL as s kk)})"
-            using jL by (intro imageI) simp
-          show ?thesis
-            unfolding may_read_def Lset_def by (intro UnI1 UnionI[OF fam mem])
-        qed
+          unfolding may_read_def Lset_def
+          using jL in_blk by blast
+
         show "map ((!) y) [?a..< ?a+?w] ! t = map oL [?a..< ?a+?w] ! t"
-          by (simp add: idx y_def Y_def AT in_may)
+          using idx y_def Y_def in_may 
+            ‹Y ≡ λi. if i ∈ may_read then oL i else x ! i› 
+            may_read_lt_len tw by auto
       qed
-      show "Lval_at as s ((!) y) j = Lval_at as s oL j"
-        by (simp add: Lval_at_def slice_eq)
     qed
-    show ?thesis by (simp add: Good_def good_def Lwin_eq)
+    have Lval_eq:
+      "⋀j. j < length (enumL as s kk) ⟹
+            Lval_at as s ((!) y) j = Lval_at as s oL j"
+      by (simp add: Lval_at_def Lslice)
+    show ?thesis using Good_def good_def Lval_eq by metis
   qed
 
-  (* agree-on-seen for (y,x) to switch run to oL *)
-  have agree_on_seenL_for_pair:
-    "⋀i. i ∈ seenL_run ((!) y) ((!) x) T ⟹ (!) y i = oL i"
-  proof -
-    fix i assume iSL: "i ∈ seenL_run ((!) y) ((!) x) T"
-    from SL_sub_read0_yx iSL have iR0: "i ∈ Base.read0 M x" by blast
-    from read0_sub_may iR0 have iMay: "i ∈ may_read" by blast
-    have iLt: "i < length x" by (rule may_read_lt_len[OF iMay])
-    have "(!) y i = y ! i" by simp
-    also have "... = (map Y [0..<length x]) ! i" by (simp add: y_def)
-    also from iLt have "... = Y i" by simp
-    also from iMay have "... = oL i" by (simp add: Y_def)
-    finally show "(!) y i = oL i" .
-  qed
-
-  have run_yx_eq_olx:
-    "run ((!) y) ((!) x) T = run oL ((!) x) T"
-  proof (rule run_agrees_on_seen)
-    show "⋀i. i ∈ seenL_run ((!) y) ((!) x) T ⟹ (!) y i = oL i"
-      by (rule agree_on_seenL_for_pair)
-  next
-    show "⋀i. i ∈ seenR_run ((!) y) ((!) x) T ⟹ (!) x i = (!) x i" by simp
-  qed
-
+  (* correctness of T on x *)
   have run_xx_eq_Good_xx:
     "run ((!) x) ((!) x) T = Good as s ((!) x) ((!) x)"
-    by (rule correct_T0)
+    by (simp add: correct_T0)
 
-  have SL_sub_read0_x:
-    "seenL_run ((!) x) ((!) x) T ⊆ Base.read0 M x"
-    by (rule seenL_T0_subset_read0) simp
+  have SL_Lx: "seenL_run L ((!) x) T ⊆ Base.read0 M x" for L
+    unfolding x_def T_def by (rule seenL_T0_subset_read0) simp
 
-  have run_yx_eq_xx:
-    "run ((!) y) ((!) x) T = run ((!) x) ((!) x) T"
+  have SR_Lx: "seenR_run L ((!) x) T ⊆ Base.read0 M x" for L
+    unfolding x_def T_def by (rule seenR_T0_subset_read0) simp
+
+  (* move RIGHT from ((!) y) back to ((!) x), only using (x,·)-seen subsets *)
+  have run_oL_y_eq_oL_x:
+    "run oL ((!) y) T = run oL ((!) x) T"
   proof (rule run_agrees_on_seen)
-    show "⋀i. i ∈ seenL_run ((!) y) ((!) x) T ⟹ (!) y i = (!) x i"
-    proof -
-      fix i assume iSL: "i ∈ seenL_run ((!) y) ((!) x) T"
-      from SL_sub_read0_x iSL have "i ∈ Base.read0 M x" by blast
-      with read0_sub_may have "i ∈ may_read" by blast
-      thus "(!) y i = (!) x i" by (simp add: y_def Y_def)
-    qed
+    show "⋀i. i ∈ seenL_run oL ((!) y) T ⟹ oL i = oL i"
+      by simp
   next
-    show "⋀i. i ∈ seenR_run ((!) y) ((!) x) T ⟹ (!) x i = (!) x i" by simp
+    show "⋀i. i ∈ seenR_run oL ((!) y) T ⟹ (!) y i = (!) x i"
+    proof -
+      fix i assume iSR: "i ∈ seenR_run oL ((!) y) T"
+      (* Use the generic seenR ⊆ read0 (with left = oL) *)
+      have iR0: "i ∈ Base.read0 M x"
+        using SR_Lx[of oL] iSR by (rule subsetD)
+      have iMay: "i ∈ may_read"
+        using read0_sub_may iR0 by (rule subsetD)
+      (* On may_read, y copies oL; off may_read, y copies x *)
+      show "(!) y i = (!) x i"
+      proof (cases "i < length x")
+        case True
+        thus ?thesis
+          by (simp add: y_def Y_def iMay)
+      next
+        case False
+        thus ?thesis
+          by (simp add: y_def)  (* off the right tape length y and x are both defaulted the same way *)
+      qed
+    qed
   qed
 
-  have "run oL ((!) x) T = run ((!) y) ((!) x) T"
-    by (simp add: run_yx_eq_olx[symmetric])
-  also have "... = run ((!) x) ((!) x) T" by (rule run_yx_eq_xx)
-  also have "... = Good as s ((!) x) ((!) x)" by (rule run_xx_eq_Good_xx)
-  also have "... = Good as s ((!) y) ((!) x)"
-    by (simp add: Good_normalize[symmetric])
-  finally show ?thesis by (simp add: RUN0)
+  (* chain *)
+  have "run oL ((!) x) T = run oL ((!) y) T"
+    by (rule run_oL_y_eq_oL_x[symmetric])
+  also have "... = run ((!) x) ((!) y) T"
+  proof (rule run_agrees_on_seen)
+    show "⋀i. i ∈ seenL_run ((!) x) ((!) y) T ⟹ (!) x i = oL i"
+    proof -
+      fix i assume iSL: "i ∈ seenL_run ((!) x) ((!) y) T"
+      have "y ! i = oL i" using agreeL_xy iSL by blast
+      thus "(!) x i = oL i"
+        by (simp add: ‹y ! i = oL i›)  (* if you prefer, keep your previous step here *)
+    qed
+  next
+    (* right side is vacuous *)
+    show "⋀i. i ∈ seenR_run ((!) x) ((!) y) T ⟹ (!) y i = (!) y i" by simp
+  qed
+  also have "... = run ((!) x) ((!) x) T"
+  proof (rule run_agrees_on_seen)
+    show "⋀i. i ∈ seenL_run ((!) x) ((!) y) T ⟹ (!) x i = (!) x i" by simp
+  next
+    show "⋀i. i ∈ seenR_run ((!) x) ((!) y) T ⟹ (!) y i = (!) x i" by simp
+  qed
 qed
 
 lemma drive_char_LHS_core:
@@ -424,8 +430,6 @@ lemma blockR_pairwise_disjoint:
   shows "blockR_abs enc0 as s kk j ∩ blockR_abs enc0 as s kk j' = {}"
   using ne
   by (rule blockR_abs_disjoint)
-
-
 
 lemma Good_unread_L_local:
   assumes disj: "Base.read0 M x ∩ blockL_abs enc0 as s j = {}"
@@ -890,8 +894,6 @@ proof (intro allI impI)
 qed
 
 (* 9) The coverage result you wanted, phrased on block families *)
-
-
 
 lemma coverage_blocks:
   assumes "n = length as" "distinct_subset_sums as"
