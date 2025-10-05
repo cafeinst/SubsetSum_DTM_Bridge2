@@ -10,333 +10,541 @@ lemma run_drive_T0:
    = final_acc (drive (steps M (x0 as s)) (conf M (x0 as s) 0) oL)"
   by (simp add: run_tm_to_dtr' T0_def)
 
+(* Use the existing datatype from SubsetSum_DecisionTree *)
+(* Do NOT redeclare a local datatype named dtr. *)
+
+(* Make a convenient induction rule with case names for that datatype *)
+lemmas dtr_induct_cases =
+  SubsetSum_DecisionTree.dtr.induct[case_names Leaf AskL AskR]
+
+(* Structural well-formedness over L/R for THAT tree type *)
+inductive wf_tree ::
+  "'i set ⇒ 'j set ⇒ ('i,'j) SubsetSum_DecisionTree.dtr ⇒ bool"
+  for L R
+where
+  Leaf:
+    "wf_tree L R (SubsetSum_DecisionTree.Leaf b)"
+| AskL:
+    "i ∈ L ⟹
+     wf_tree L R U1 ⟹ wf_tree L R U2 ⟹
+     wf_tree L R (SubsetSum_DecisionTree.AskL i U1 U2)"
+| AskR:
+    "j ∈ R ⟹
+     wf_tree L R U1 ⟹ wf_tree L R U2 ⟹
+     wf_tree L R (SubsetSum_DecisionTree.AskR j U1 U2)"
+
+declare wf_tree.cases  [case_names Leaf AskL AskR]
+declare wf_tree.induct [case_names Leaf AskL AskR]
+
+(* Handy eliminators *)
+lemma wf_tree_AskL_elim:
+  assumes WF: "wf_tree L R (SubsetSum_DecisionTree.AskL i U1 U2)"
+  obtains "i ∈ L" "wf_tree L R U1" "wf_tree L R U2"
+  using WF by (cases rule: wf_tree.cases) auto
+
+lemma wf_tree_AskR_elim:
+  assumes WF: "wf_tree L R (SubsetSum_DecisionTree.AskR j U1 U2)"
+  obtains "j ∈ R" "wf_tree L R U1" "wf_tree L R U2"
+  using WF by (cases rule: wf_tree.cases) auto
+
+(* The subset lemmas you want, now typed against the right dtr *)
+lemma seenL_subset_of_wf_tree:
+  assumes WF: "wf_tree L R U"
+  shows "SubsetSum_DecisionTree.seenL_run oL' oR' U ⊆ L"
+  using WF
+proof (induction U arbitrary: oL' oR' rule: dtr_induct_cases)
+  case (Leaf b)
+  show ?case by simp
+next
+  case (AskL i U1 U2)
+  have iL_WF1_WF2:
+    "i ∈ L ∧ wf_tree L R U1 ∧ wf_tree L R U2"
+    using AskL.prems by (cases rule: wf_tree.cases) auto
+  then have iL:  "i ∈ L"
+     and WF1: "wf_tree L R U1"
+     and WF2: "wf_tree L R U2"
+    by auto
+  have IH1: "seenL_run oL' oR' U1 ⊆ L" by (rule AskL.IH(1)[OF WF1])
+  have IH2: "seenL_run oL' oR' U2 ⊆ L" by (rule AskL.IH(2)[OF WF2])
+  show ?case
+    by (simp add: IH1 IH2 iL)
+next
+  case (AskR j U1 U2)
+  have jR_WF1_WF2: "j ∈ R ∧ wf_tree L R U1 ∧ wf_tree L R U2"
+    using AskR.prems by (cases rule: wf_tree.cases) auto
+  then have WF1: "wf_tree L R U1" and WF2: "wf_tree L R U2" by auto
+  have IH1: "SubsetSum_DecisionTree.seenL_run oL' oR' U1 ⊆ L"
+    by (rule AskR.IH(1)[OF WF1])
+  have IH2: "SubsetSum_DecisionTree.seenL_run oL' oR' U2 ⊆ L"
+    by (rule AskR.IH(2)[OF WF2])
+  show ?case
+    by (simp add: IH1 IH2)
+qed
+
+lemma seenR_subset_of_wf_tree:
+  assumes WF: "wf_tree L R U"
+  shows "SubsetSum_DecisionTree.seenR_run oL' oR' U ⊆ R"
+  using WF
+proof (induction U arbitrary: oL' oR' rule: dtr_induct_cases)
+  case (Leaf b)
+  show ?case by simp
+next
+  (* Left query: seenR just follows the branch, no insertion *)
+  case (AskL i U1 U2)
+  have WF12: "wf_tree L R U1 ∧ wf_tree L R U2"
+    using AskL.prems by (cases rule: wf_tree.cases) auto
+  then have WF1: "wf_tree L R U1" and WF2: "wf_tree L R U2" by auto
+  have IH1: "SubsetSum_DecisionTree.seenR_run oL' oR' U1 ⊆ R"
+    by (rule AskL.IH(1)[OF WF1])
+  have IH2: "SubsetSum_DecisionTree.seenR_run oL' oR' U2 ⊆ R"
+    by (rule AskL.IH(2)[OF WF2])
+  show ?case
+    by (simp add: IH1 IH2)
+next
+  (* Right query: seenR inserts j, so we need j ∈ R *)
+  case (AskR j U1 U2)
+  have jR_WF12: "j ∈ R ∧ wf_tree L R U1 ∧ wf_tree L R U2"
+    using AskR.prems by (cases rule: wf_tree.cases) auto
+  then have jR: "j ∈ R" and WF1: "wf_tree L R U1" and WF2: "wf_tree L R U2" by auto
+  have IH1: "SubsetSum_DecisionTree.seenR_run oL' oR' U1 ⊆ R"
+    by (rule AskR.IH(1)[OF WF1])
+  have IH2: "SubsetSum_DecisionTree.seenR_run oL' oR' U2 ⊆ R"
+    by (rule AskR.IH(2)[OF WF2])
+  show ?case
+    by (simp add: IH1 IH2 jR)
+qed
+
+(* 1) Bridge from operational wf_run to structural wf_tree *)
+lemma wf_run_to_tree:
+  assumes WF: "wf_run L R oL oR U"
+  shows "wf_tree L R U"
+  using WF
+  by (induction L R oL oR U rule: wf_run.induct)
+     (auto intro: wf_tree.intros)
+
+(* 2) Structural wellformedness of T0 *)
+lemma T0_wf:
+  "wf_tree (Lset as s) (Rset as s) (T0 as s)"
+proof (cases rule: T0_cases[of as s])
+  case (Leaf b)  show ?thesis by (simp add: wf_tree.Leaf Leaf)
+next
+  case (AskL i U1 U2)
+  then show ?thesis by (simp add: wf_tree.AskL)
+next
+  case (AskR j U1 U2)
+  then show ?thesis by (simp add: wf_tree.AskR)
+qed
+
+lemma correct_T0_encR:
+  "run l ((!) (x0 as s)) (T0 as s) = Good as s l ((!) (x0 as s))"
+  by (rule correct_T0)
+
+lemma correct_T0_encL:
+  "run ((!) (x0 as s)) r (T0 as s) = Good as s ((!) (x0 as s)) r"
+  by (rule correct_T0)
+
+lemma run_to_Good_with_right_enc:
+  "run oL ((!) (x0 as s)) (T0 as s) = Good as s oL ((!) (x0 as s))"
+proof -
+  define x where [simp]: "x = x0 as s"
+  define T where [simp]: "T = T0 as s"
+
+  (* wf fact for T0; keep your proof or leave it as sorry for now *)
+  have WF_T: "wf_tree (Lset as s) (Rset as s) T"
+    by (simp add: T0_wf)
+
+  (* Only LEFT windows matter for mapping oL into a list *)
+  define may_read :: "nat set" where "may_read = Lset as s"
+  define Y :: "nat ⇒ bool" where "Y i = (if i ∈ may_read then oL i else x ! i)"
+  define y where "y = map Y [0..<length x]"
+
+  have len_x[simp]: "length x = length (enc as s kk)"
+    by simp
+(* L windows are within bounds of x *)
+  have Lset_lt_len: "⋀i. i ∈ Lset as s ⟹ i < length x"
+  proof -
+    fix i assume "i ∈ Lset as s"
+    then obtain j where jL: "j < length (enumL as s kk)"
+                   and iBL: "i ∈ blockL_abs enc0 as s j"
+      by (auto simp: Lset_def)
+    let ?a = "length (enc0 as s) + offL as s j"
+    let ?w = "W as s"
+    have top: "?a + ?w ≤ length (enc as s kk)"
+      using offL_window_in_enc[OF jL] by simp
+    have "i < ?a + ?w" using iBL by (simp add: blockL_abs_def offL_def)
+    also have "... ≤ length (enc as s kk)" using top .
+    finally show "i < length x" by simp
+  qed
+  have Rset_lt_len: "⋀i. i ∈ Rset as s ⟹ i < length x"
+  proof -
+    fix i assume "i ∈ Rset as s"
+    then obtain j where jR: "j < length (enumR as s kk)"
+                   and iBR: "i ∈ blockR_abs enc0 as s kk j"
+      by (auto simp: Rset_def)
+    let ?a = "length (enc0 as s) + offR as s kk j"
+    let ?w = "W as s"
+    have top: "?a + ?w ≤ length (enc as s kk)"
+      using offR_window_in_enc[OF jR] length_padL by simp
+    have "i < ?a + ?w" using iBR by (simp add: blockR_abs_def)
+    also have "... ≤ length (enc as s kk)" using top .
+    finally show "i < length x" by simp
+  qed
+  have disj_LR: "Lset as s ∩ Rset as s = {}"
+  proof
+    show "Lset as s ∩ Rset as s ⊆ {}"
+    proof
+      fix i assume "i ∈ Lset as s ∩ Rset as s"
+      then obtain jL jR where
+        jL: "jL < length (enumL as s kk)" and iBL: "i ∈ blockL_abs enc0 as s jL" and
+        jR: "jR < length (enumR as s kk)" and iBR: "i ∈ blockR_abs enc0 as s kk jR"
+        by (auto simp: Lset_def Rset_def)
+      have "blockL_abs enc0 as s jL ∩ blockR_abs enc0 as s kk jR = {}"
+        by (rule blockL_abs_blockR_abs_disjoint[OF jL])  (* or [OF jL jR], see above *)
+      thus "i ∈ {}" using iBL iBR by auto
+    qed
+    show "{} ⊆ Lset as s ∩ Rset as s" by simp
+  qed
+
+  (* y agrees with oL on Lset, and with x on Rset *)
+  have y_eq_oL_on_L: "⋀i. i ∈ Lset as s ⟹ y ! i = oL i"
+  proof -
+    fix i assume iL: "i ∈ Lset as s"
+    have iLt:  "i < length x" using iL Lset_lt_len by blast
+    have iMay: "i ∈ may_read" using iL by (simp add: may_read_def)
+    have "(map Y [0..<length x]) ! i = Y i" using iLt by simp
+    also have "Y i = oL i" using Y_def iMay
+      by (simp add: ‹Y ≡ λi. if i ∈ may_read then oL i else x ! i›)
+    finally show "y ! i = oL i" by (simp add: y_def)
+  qed
+  have y_eq_x_on_R:  "⋀i. i ∈ Rset as s ⟹ y ! i = x ! i"
+  proof -
+    fix i assume iR: "i ∈ Rset as s"
+    have iLt: "i < length x" using iR Rset_lt_len by blast
+    have "i ∉ Lset as s" using iR disj_LR by auto
+    thus "y ! i = x ! i" using y_def Y_def may_read_def iLt
+      by (simp add: ‹Y ≡ λi. if i ∈ may_read then oL i else x ! i›)
+  qed
+
+  (* What T can ever look at *)
+  have SL_yx: "seenL_run ((!) y) ((!) x) T ⊆ Lset as s"
+    using WF_T by (rule seenL_subset_of_wf_tree)
+  have SR_yx: "seenR_run ((!) y) ((!) x) T ⊆ Rset as s"
+    using WF_T by (rule seenR_subset_of_wf_tree)
+
+  (* Replace (!!y) by oL on the left (right unchanged) *)
+  have run_yx_eq_olx:
+    "run ((!) y) ((!) x) T = run oL ((!) x) T"
+  proof (rule run_agrees_on_seen)
+    show "⋀i. i ∈ seenL_run ((!) y) ((!) x) T ⟹ (!) y i = oL i"
+      using SL_yx y_eq_oL_on_L by auto
+  next
+    show "⋀i. i ∈ seenR_run ((!) y) ((!) x) T ⟹ (!) x i = (!) x i" by simp
+  qed
+
+  (* Turn the left value slices of (!!y) into oL inside Good *)
+  have Good_normalize:
+    "Good as s ((!) y) ((!) x) = Good as s oL ((!) x)"
+  proof -
+    have Lslice:
+      "⋀j. j < length (enumL as s kk) ⟹
+         map ((!) y)
+           [length (enc0 as s) + offL as s j ..<
+            length (enc0 as s) + offL as s j + W as s]
+       = map oL
+           [length (enc0 as s) + offL as s j ..<
+            length (enc0 as s) + offL as s j + W as s]"
+    proof -
+      fix j assume jL: "j < length (enumL as s kk)"
+      let ?a = "length (enc0 as s) + offL as s j"
+      let ?w = "W as s"
+      show "map ((!) y) [?a..< ?a+?w] = map oL [?a..< ?a+?w]"
+      proof (rule nth_equalityI)
+        show "length (map ((!) y) [?a..< ?a+?w]) =
+              length (map oL       [?a..< ?a+?w])" by simp
+      next
+        fix t assume "t < length (map ((!) y) [?a..< ?a+?w])"
+        hence tw: "t < ?w" by simp
+        have idx: "[?a..< ?a+?w] ! t = ?a + t" using tw by simp
+        have in_Lset:
+          "?a + t ∈ Lset as s"
+          unfolding Lset_def
+        proof (intro UN_I)
+          show "j ∈ {..< length (enumL as s kk)}"
+            using jL by simp
+        next
+          show "?a + t ∈ blockL_abs enc0 as s j"
+            using tw by (simp add: blockL_abs_def offL_def)
+        qed
+        show "map ((!) y) [?a..< ?a+?w] ! t = map oL [?a..< ?a+?w] ! t"
+          using y_eq_oL_on_L[OF in_Lset] idx
+          by (simp add: tw)
+      qed
+    qed
+    have "⋀j. j < length (enumL as s kk) ⟹
+              Lval_at as s ((!) y) j = Lval_at as s oL j"
+      by (simp add: Lval_at_def Lslice)
+    thus ?thesis using Good_def good_def by metis
+  qed
+
+  (* Correctness of T0 for arbitrary left & right — use your existing lemma name *)
+  have run_eq_good_yx:
+    "run ((!) y) ((!) x) T = Good as s ((!) y) ((!) x)"
+    unfolding x_def T_def
+    by (rule correct_T0_encR)
+
+  from run_yx_eq_olx run_eq_good_yx Good_normalize
+  have "run oL ((!) x) T = Good as s oL ((!) x)" by simp
+  thus ?thesis by simp
+qed
+
+lemma run_to_Good_with_left_enc:
+  "run ((!) (x0 as s)) oR (T0 as s) = Good as s ((!) (x0 as s)) oR"
+proof -
+  define x where [simp]: "x = x0 as s"
+  define T where [simp]: "T = T0 as s"
+
+  (* wf fact for T0 (structural) *)
+  have WF_T: "wf_tree (Lset as s) (Rset as s) T"
+    by (simp add: T0_wf)
+
+  (* Only RIGHT windows matter for mapping oR into a list *)
+  define may_read :: "nat set" where "may_read = Rset as s"
+  define Z :: "nat ⇒ bool" where "Z i = (if i ∈ may_read then oR i else x ! i)"
+  define z where "z = map Z [0..<length x]"
+
+  have len_x[simp]: "length x = length (enc as s kk)"
+    by simp
+
+  (* R windows are within bounds of x *)
+  have Rset_lt_len: "⋀i. i ∈ Rset as s ⟹ i < length x"
+  proof -
+    fix i assume "i ∈ Rset as s"
+    then obtain j where jR: "j < length (enumR as s kk)"
+                     and iBR: "i ∈ blockR_abs enc0 as s kk j"
+      by (auto simp: Rset_def)
+    let ?a = "length (enc0 as s) + offR as s kk j"
+    let ?w = "W as s"
+    have top: "?a + ?w ≤ length (enc as s kk)"
+      using offR_window_in_enc[OF jR] length_padL by simp
+    have "i < ?a + ?w" using iBR by (simp add: blockR_abs_def)
+    also have "... ≤ length (enc as s kk)" using top .
+    finally show "i < length x" by simp
+  qed
+
+  (* L windows are within bounds of x (used when we show z = x there) *)
+  have Lset_lt_len: "⋀i. i ∈ Lset as s ⟹ i < length x"
+  proof -
+    fix i assume "i ∈ Lset as s"
+    then obtain j where jL: "j < length (enumL as s kk)"
+                     and iBL: "i ∈ blockL_abs enc0 as s j"
+      by (auto simp: Lset_def)
+    let ?a = "length (enc0 as s) + offL as s j"
+    let ?w = "W as s"
+    have top: "?a + ?w ≤ length (enc as s kk)"
+      using offL_window_in_enc[OF jL] by simp
+    have "i < ?a + ?w" using iBL by (simp add: blockL_abs_def offL_def)
+    also have "... ≤ length (enc as s kk)" using top .
+    finally show "i < length x" by simp
+  qed
+
+  (* Disjointness *)
+  have disj_LR: "Lset as s ∩ Rset as s = {}"
+  proof (rule order_antisym)
+    show "Lset as s ∩ Rset as s ⊆ {}"
+    proof
+      fix i assume "i ∈ Lset as s ∩ Rset as s"
+      then have iL: "i ∈ Lset as s" and iR: "i ∈ Rset as s" by auto
+
+    (* pick the L- and R-window witnesses explicitly *)
+      obtain jL where jLlt: "jL < length (enumL as s kk)"
+                 and iBL:  "i ∈ blockL_abs enc0 as s jL"
+        using iL by (auto simp: Lset_def)
+
+      obtain jR where jRlt: "jR < length (enumR as s kk)"
+                 and iBR:  "i ∈ blockR_abs enc0 as s kk jR"
+        using iR by (auto simp: Rset_def)
+
+    (* now apply the disjointness of that specific L-block and R-block *)
+      have disj: "blockL_abs enc0 as s jL ∩ blockR_abs enc0 as s kk jR = {}"
+        by (rule blockL_abs_blockR_abs_disjoint[OF jLlt])
+
+      from iBL iBR have False
+        using disj by auto
+      thus "i ∈ {}" by simp
+    qed
+    show "{} ⊆ Lset as s ∩ Rset as s" by simp
+  qed
+
+  (* z agrees with oR on Rset, and with x on Lset *)
+  have z_eq_oR_on_R: "⋀i. i ∈ Rset as s ⟹ z ! i = oR i"
+  proof -
+    fix i assume iR: "i ∈ Rset as s"
+    have iLt: "i < length x" using ‹i ∈ Rset as s› Rset_lt_len by blast
+    have "z ! i = (map Z [0..<length x]) ! i" by (simp add: z_def)
+    also from iLt have "... = Z i" by simp
+    also have "... = oR i" using ‹i ∈ Rset as s›
+      by (simp add: ‹Z ≡ λi. if i ∈ may_read then oR i else x ! i› may_read_def)
+    finally show "z ! i = oR i" .
+  qed
+  have z_eq_x_on_L:  "⋀i. i ∈ Lset as s ⟹ z ! i = x ! i"
+  proof -
+    fix i assume iL: "i ∈ Lset as s"
+    have iLt: "i < length x" using iL Lset_lt_len by blast
+    have "i ∉ Rset as s" using iL disj_LR by auto
+    have "z ! i = (map Z [0..<length x]) ! i"
+      by (simp add: z_def)
+    also have "... = Z i"
+      using iLt by simp
+    also have "... = x ! i"
+      using ‹i ∉ Rset as s›
+      by (simp add: ‹Z ≡ λi. if i ∈ may_read then oR i else x ! i› may_read_def)
+    finally show "z ! i = x ! i" .
+  qed
+
+  (* What T can ever look at *)
+  have SL_xz: "seenL_run ((!) x) ((!) z) T ⊆ Lset as s"
+    using WF_T by (rule seenL_subset_of_wf_tree)
+  have SR_xz: "seenR_run ((!) x) ((!) z) T ⊆ Rset as s"
+    using WF_T by (rule seenR_subset_of_wf_tree)
+
+  (* Replace right: ((!) x, (!!z))  ~  ((!) x, oR) *)
+  have run_xz_eq_xoR:
+    "run ((!) x) ((!) z) T = run ((!) x) oR T"
+  proof (rule run_agrees_on_seen)
+    show "⋀i. i ∈ seenL_run ((!) x) ((!) z) T ⟹ (!) x i = (!) x i" by simp
+  next
+    show "⋀i. i ∈ seenR_run ((!) x) ((!) z) T ⟹ (!) z i = oR i"
+    proof -
+      fix i assume iSR: "i ∈ seenR_run ((!) x) ((!) z) T"
+      from SR_xz iSR have iR: "i ∈ Rset as s" by blast
+      show "(!) z i = oR i" using z_eq_oR_on_R[OF iR] by simp
+    qed
+  qed
+
+  (* Normalize Good on RIGHT windows *)
+  have Good_normalize_R:
+    "Good as s ((!) x) ((!) z) = Good as s ((!) x) oR"
+  proof -
+    have Rslice:
+      "⋀j. j < length (enumR as s kk) ⟹
+           map ((!) z)
+             [length (enc0 as s) + offR as s kk j
+              ..< length (enc0 as s) + offR as s kk j + W as s]
+         = map oR
+             [length (enc0 as s) + offR as s kk j
+              ..< length (enc0 as s) + offR as s kk j + W as s]"
+    proof -
+      fix j assume jR: "j < length (enumR as s kk)"
+      let ?a = "length (enc0 as s) + offR as s kk j"
+      let ?w = "W as s"
+      show "map ((!) z) [?a..< ?a+?w] = map oR [?a..< ?a+?w]"
+      proof (rule nth_equalityI)
+        show "length (map ((!) z) [?a..< ?a+?w]) =
+              length (map oR       [?a..< ?a+?w])" by simp
+      next
+        fix t assume "t < length (map ((!) z) [?a..< ?a+?w])"
+        hence tw: "t < ?w" by simp
+        have idx: "[?a..< ?a+?w] ! t = ?a + t" using tw by simp
+        have in_Rset:
+          "?a + t ∈ Rset as s"
+          unfolding Rset_def
+        proof (intro UN_I)
+          show "j ∈ {..< length (enumR as s kk)}" using jR by simp
+        next
+          show "?a + t ∈ blockR_abs enc0 as s kk j"
+            using tw by (simp add: blockR_abs_def)
+        qed
+        have nth_range: "[?a ..< ?a + ?w] ! t = ?a + t"
+          using tw by simp
+        have "(map ((!) z) [?a ..< ?a + ?w]) ! t
+          = ((!) z) ([?a ..< ?a + ?w] ! t)"
+          using tw by simp   (* uses nth_map with t < length ... since length = ?w *)
+        also have "... = (!) z (?a + t)"
+          by (simp add: nth_range)
+        finally have "(map ((!) z) [?a ..< ?a + ?w]) ! t = z ! (?a + t)"
+          by simp
+        also have "... = oR (?a + t)"
+          using z_eq_oR_on_R[OF in_Rset] by simp
+        also have "... = (map oR [?a..< ?a+?w]) ! t"
+          by (simp add: tw)
+        finally show "map ((!) z) [?a..< ?a+?w] ! t = map oR [?a..< ?a+?w] ! t" .
+      qed
+    qed
+    have "⋀j. j < length (enumR as s kk) ⟹
+              Rval_at as s ((!) z) j = Rval_at as s oR j"
+      by (simp add: Rval_at_def Rslice)
+    thus ?thesis using Good_def good_def by metis
+  qed
+
+  (* Core correctness with left enc (parametric in right) *)
+  have run_eq_good_xz:
+    "run ((!) x) ((!) z) T = Good as s ((!) x) ((!) z)"
+    unfolding x_def T_def by (rule correct_T0_encL)
+
+(* First, rewrite run_xz_eq_xoR into the (x0 as s, T0 as s) shape *)
+  have step1_x:
+    "run ((!) (x0 as s)) oR (T0 as s) = run ((!) (x0 as s)) ((!) z) (T0 as s)"
+    using run_xz_eq_xoR[symmetric] by simp
+
+  have step1_enc:
+    "run ((!) (enc as s kk)) oR (T0 as s) =
+    run ((!) (enc as s kk)) ((!) z) (T0 as s)"
+    using step1_x by simp
+  have "run ((!) (x0 as s)) oR (T0 as s) =
+      run ((!) (x0 as s)) ((!) z) (T0 as s)"
+    using step1_x .
+  also have "... = Good as s ((!) (x0 as s)) ((!) z)"
+    using correct_T0_encL by simp
+  also have "... = Good as s ((!) (x0 as s)) oR"
+    using Good_normalize_R by simp
+  finally show ?thesis .
+qed
+
 lemma drive_char_RHS_core:
   "final_acc (drive (steps M (x0 as s)) (conf M (x0 as s) 0) oL)
    = Good as s oL ((!) (x0 as s))"
 proof -
   define x where [simp]: "x = x0 as s"
   define T where [simp]: "T = T0 as s"
-
-  (* bridge *)
   have RUN0:
     "final_acc (drive (steps M x) (conf M x 0) oL) = run oL ((!) x) T"
     by (simp add: run_drive_T0)
-
-  (* may-read region *)
-  define may_read :: "nat set" where "may_read = Lset as s ∪ Rset as s"
-
-  (* build y from oL on may_read, else keep x *)
-  define Y :: "nat ⇒ bool" where "Y i = (if i ∈ may_read then oL i else x ! i)"
-  define y where "y = map Y [0..<length x]"
-
-  (* seenL ((!) x) ((!) y) ⊆ read0 M x *)
-  have SL_xy:
-    "seenL_run ((!) x) ((!) y) T ⊆ Base.read0 M x"
-    unfolding x_def T_def by (rule seenL_T0_subset_read0) simp
-
-  (* also for ((!) x) ((!) x) *)
-  have SL_xx:
-    "seenL_run ((!) x) ((!) x) T ⊆ Base.read0 M x"
-    unfolding x_def T_def by (rule seenL_T0_subset_read0) simp
-
-  (* and seenR with left ((!) x) *)
-  have SR_xy:
-    "seenR_run ((!) x) ((!) y) T ⊆ Base.read0 M x"
-    unfolding x_def T_def by (rule seenR_T0_subset_read0) simp
-  have SR_xx:
-    "seenR_run ((!) x) ((!) x) T ⊆ Base.read0 M x"
-    unfolding x_def T_def by (rule seenR_T0_subset_read0) simp
-
-  (* sizes *)
-  have len_x[simp]:
-    "length x = length (enc0 as s) + length (padL as s kk) + length (padR as s kk)"
-    by (simp add: enc_def)
-
-  (* read0 M x ⊆ may_read *)
-  have read0_sub_may: "Base.read0 M x ⊆ may_read"
-    unfolding may_read_def by (simp add: read0_subset_blocks_abs)
-
-  (* indices in may_read lie within bounds of x *)
-  have may_read_lt_len: "⋀i. i ∈ may_read ⟹ i < length x"
-  proof -
-    fix i assume "i ∈ may_read"
-    then consider
-      (L) j where "j < length (enumL as s kk)" and "i ∈ blockL_abs enc0 as s j"
-    | (R) j where "j < length (enumR as s kk)" and "i ∈ blockR_abs enc0 as s kk j"
-      unfolding may_read_def Lset_def Rset_def by auto
-    thus "i < length x"
-    proof cases
-      case (L j)
-      let ?a = "length (enc0 as s) + offL as s j"
-      let ?w = "W as s"
-      have top: "?a + ?w ≤ length x"
-        using offL_window_in_enc[OF L(1)] by simp
-      from L(2) have "i < ?a + ?w"
-        by (simp add: blockL_abs_def offL_def)
-      with top show ?thesis by linarith
-    next
-      case (R j)
-      let ?a = "length (enc0 as s) + offR as s kk j"
-      let ?w = "W as s"
-      have top: "?a + ?w ≤ length x"
-        using offR_window_in_enc[OF R(1)] length_padL by simp
-      from R(2) have "i < ?a + ?w"
-        by (simp add: blockR_abs_def)
-      with top show ?thesis by linarith
-    qed
-  qed
-
-  (* what left actually sees along ((!) x, (!) y) *)
-  have agreeL_xy:
-    "⋀i. i ∈ seenL_run ((!) x) ((!) y) T ⟹ y ! i = oL i"
-  proof -
-    fix i assume iSL: "i ∈ seenL_run ((!) x) ((!) y) T"
-    have iR0: "i ∈ Base.read0 M x" using SL_xy iSL by blast
-    have iMay: "i ∈ may_read" using read0_sub_may iR0 by (rule subsetD)
-    have iLt:  "i < length x" using iMay may_read_lt_len by blast
-    have "y ! i = (map Y [0..<length x]) ! i" by (simp add: y_def)
-    also have "... = Y i" using iLt by simp
-    also have "... = oL i"
-      using iMay Y_def
-      by (simp add: ‹Y ≡ λi. if i ∈ may_read then oL i else x ! i›)
-    finally show "y ! i = oL i" .
-  qed
-
-  (* normalize Good on left windows *)
-  have Good_normalize:
-    "Good as s ((!) y) ((!) x) = Good as s oL ((!) x)"
-  proof -
-    have Lslice:
-  "⋀j. j < length (enumL as s kk) ⟹
-        map ((!) y)
-          [length (enc0 as s) + offL as s j
-           ..< length (enc0 as s) + offL as s j + W as s]
-      = map oL
-          [length (enc0 as s) + offL as s j
-           ..< length (enc0 as s) + offL as s j + W as s]"
-    proof -
-      fix j assume jL: "j < length (enumL as s kk)"
-      let ?a = "length (enc0 as s) + offL as s j"
-      let ?w = "W as s"
-      show "map ((!) y) [?a ..< ?a + ?w] = map oL [?a ..< ?a + ?w]"
-      proof (rule nth_equalityI)
-        show "length (map ((!) y) [?a..< ?a+?w]) =
-          length (map oL       [?a..< ?a+?w])" by simp
-      next
-        fix t assume "t < length (map ((!) y) [?a..< ?a+?w])"
-        then have tw: "t < ?w" by simp
-        have idx: "[?a..< ?a+?w] ! t = ?a + t" using tw by simp
-
-    (* 1) First show it's inside the j-th L block *)
-        have in_blk: "?a + t ∈ blockL_abs enc0 as s j"
-          using tw by (simp add: blockL_abs_def offL_def)
-
-    (* 2) Then lift that to may_read via Lset *)
-        have in_may: "?a + t ∈ may_read"
-          unfolding may_read_def Lset_def
-          using jL in_blk by blast
-
-        show "map ((!) y) [?a..< ?a+?w] ! t = map oL [?a..< ?a+?w] ! t"
-          using idx y_def Y_def in_may 
-            ‹Y ≡ λi. if i ∈ may_read then oL i else x ! i› 
-            may_read_lt_len tw by auto
-      qed
-    qed
-    have Lval_eq:
-      "⋀j. j < length (enumL as s kk) ⟹
-            Lval_at as s ((!) y) j = Lval_at as s oL j"
-      by (simp add: Lval_at_def Lslice)
-    show ?thesis using Good_def good_def Lval_eq by metis
-  qed
-
-  (* correctness of T on x *)
-  have run_xx_eq_Good_xx:
-    "run ((!) x) ((!) x) T = Good as s ((!) x) ((!) x)"
-    by (simp add: correct_T0)
-
-  have SL_Lx: "seenL_run L ((!) x) T ⊆ Base.read0 M x" for L
-    unfolding x_def T_def by (rule seenL_T0_subset_read0) simp
-
-  have SR_Lx: "seenR_run L ((!) x) T ⊆ Base.read0 M x" for L
-    unfolding x_def T_def by (rule seenR_T0_subset_read0) simp
-
-  (* move RIGHT from ((!) y) back to ((!) x), only using (x,·)-seen subsets *)
-  have run_oL_y_eq_oL_x:
-    "run oL ((!) y) T = run oL ((!) x) T"
-  proof (rule run_agrees_on_seen)
-    show "⋀i. i ∈ seenL_run oL ((!) y) T ⟹ oL i = oL i"
-      by simp
-  next
-    show "⋀i. i ∈ seenR_run oL ((!) y) T ⟹ (!) y i = (!) x i"
-    proof -
-      fix i assume iSR: "i ∈ seenR_run oL ((!) y) T"
-      (* Use the generic seenR ⊆ read0 (with left = oL) *)
-      have iR0: "i ∈ Base.read0 M x"
-        using SR_Lx[of oL] iSR by (rule subsetD)
-      have iMay: "i ∈ may_read"
-        using read0_sub_may iR0 by (rule subsetD)
-      (* On may_read, y copies oL; off may_read, y copies x *)
-      show "(!) y i = (!) x i"
-      proof (cases "i < length x")
-        case True
-        thus ?thesis
-          by (simp add: y_def Y_def iMay)
-      next
-        case False
-        thus ?thesis
-          by (simp add: y_def)  (* off the right tape length y and x are both defaulted the same way *)
-      qed
-    qed
-  qed
-
-  (* chain *)
-  have "run oL ((!) x) T = run oL ((!) y) T"
-    by (rule run_oL_y_eq_oL_x[symmetric])
-  also have "... = run ((!) x) ((!) y) T"
-  proof (rule run_agrees_on_seen)
-    show "⋀i. i ∈ seenL_run ((!) x) ((!) y) T ⟹ (!) x i = oL i"
-    proof -
-      fix i assume iSL: "i ∈ seenL_run ((!) x) ((!) y) T"
-      have "y ! i = oL i" using agreeL_xy iSL by blast
-      thus "(!) x i = oL i"
-        by (simp add: ‹y ! i = oL i›)  (* if you prefer, keep your previous step here *)
-    qed
-  next
-    (* right side is vacuous *)
-    show "⋀i. i ∈ seenR_run ((!) x) ((!) y) T ⟹ (!) y i = (!) y i" by simp
-  qed
-  also have "... = run ((!) x) ((!) x) T"
-  proof (rule run_agrees_on_seen)
-    show "⋀i. i ∈ seenL_run ((!) x) ((!) y) T ⟹ (!) x i = (!) x i" by simp
-  next
-    show "⋀i. i ∈ seenR_run ((!) x) ((!) y) T ⟹ (!) y i = (!) x i" by simp
-  qed
+  have "run oL ((!) x) T = Good as s oL ((!) x)"
+    unfolding x_def T_def by (rule run_to_Good_with_right_enc)
+  with RUN0 show ?thesis by simp
 qed
 
 lemma drive_char_LHS_core:
-   "final_acc (drive (steps M (x0 as s)) (conf M (x0 as s) 0) ((!) (x0 as s)))
+  "final_acc (drive (steps M (x0 as s)) (conf M (x0 as s) 0) ((!) (x0 as s)))
    = Good as s ((!) (x0 as s)) oR"
 proof -
-  let ?x = "x0 as s"
-  let ?T = "T0 as s"
-
+  define x where [simp]: "x = x0 as s"
+  define T where [simp]: "T = T0 as s"
   have RUN0:
-    "final_acc (drive (steps M ?x) (conf M ?x 0) ((!) ?x)) = run ((!) ?x) oR ?T"
+    "final_acc (drive (steps M x) (conf M x 0) ((!) x)) = run ((!) x) oR T"
     by (simp add: run_drive_T0)
-
-  define may_read where "may_read ≡ Lset as s ∪ Rset as s"
-  define Z where "Z i = (if i ∈ may_read then oR i else ?x ! i)" for i
-  define z where "z = map Z [0..<length ?x]"
-  have len_z[simp]: "length z = length ?x" by (simp add: z_def)
-
-   have SR_sub_read0:
-    "seenR_run ((!) ?x) ((!) z) ?T ⊆ Base.read0 M ?x"
-    by (rule seenR_T0_subset_read0) (simp add: x0_is_enc)
-  have read0_sub_may:
-    "Base.read0 M ?x ⊆ may_read"
-    unfolding may_read_def by (rule read0_subset_blocks_abs)
-
-  have agree_on_seenR:
-    "⋀i. i ∈ seenR_run ((!) ?x) ((!) z) ?T ⟹ (!) z i = oR i"
-    by (simp add: z_def Z_def SR_sub_read0 read0_sub_may)
-
-  have Good_normalize_R:
-    "Good as s ((!) ?x) ((!) z) = Good as s ((!) ?x) oR"
-  proof -
-    have Rwin_eq:
-      "⋀j. j < length (enumR as s kk) ⟹
-           Rval_at as s ((!) z) j = Rval_at as s oR j"
-    proof -
-      fix j assume jR: "j < length (enumR as s kk)"
-      let ?a = "length (enc0 as s) + offR as s kk j"
-      let ?w = "W as s"
-      have blk: "blockR_abs enc0 as s kk j = {?a ..< ?a + ?w}"
-        by (simp add: blockR_abs_def)
-      have slice_eq:
-        "map ((!) z) [?a ..< ?a + ?w] = map oR [?a ..< ?a + ?w]"
-      proof (rule nth_equalityI)
-        show "length (map ((!) z) [?a..< ?a+?w]) = 
-              length (map oR [?a..< ?a+?w])" by simp
-      next
-        fix t assume tlt: "t < length (map ((!) z) [?a..< ?a+?w])"
-        hence tw: "t < ?w" by simp
-        have idx: "[?a..< ?a+?w] ! t = ?a + t" using tw by simp
-        have mem: "?a + t ∈ blockR_abs enc0 as s kk j" by (simp add: blk tw)
-        have in_may: "?a + t ∈ may_read"
-          unfolding may_read_def
-          by (intro UnI2) (simp add: Rset_def blockR_abs_def UN_iff jR)
-        show "map ((!) z) [?a..< ?a+?w] ! t = map oR [?a..< ?a+?w] ! t"
-          by (simp add: idx z_def Z_def in_may)
-      qed
-      show "Rval_at as s ((!) z) j = Rval_at as s oR j"
-        by (simp add: Rval_at_def slice_eq)
-    qed
-    show ?thesis
-      unfolding Good_def good_def by (metis Rwin_eq)
-  qed
-
-  have run_xz_eq_xoR:
-    "run ((!) ?x) ((!) z) ?T = run ((!) ?x) oR ?T"
-  proof (rule run_agrees_on_seen)
-    show "⋀i. i ∈ seenL_run ((!) ?x) ((!) z) ?T ⟹ (!) ?x i = (!) ?x i" by simp
-  next
-    show "⋀i. i ∈ seenR_run ((!) ?x) ((!) z) ?T ⟹ (!) z i = oR i"
-      by (rule agree_on_seenR)
-  qed
-
-  have run_xx_eq_Good_xx:
-    "run ((!) ?x) ((!) ?x) ?T = Good as s ((!) ?x) ((!) ?x)"
-    by (rule correct_T0)
-
-  have SR_sub_read0_x:
-    "seenR_run ((!) ?x) ((!) ?x) ?T ⊆ Base.read0 M ?x"
-    by (rule seenR_T0_subset_read0) simp
-
-  have run_xz_eq_xx:
-    "run ((!) ?x) ((!) z) ?T = run ((!) ?x) ((!) ?x) ?T"
-  proof (rule run_agrees_on_seen)
-    show "⋀i. i ∈ seenL_run ((!) ?x) ((!) z) ?T ⟹ (!) ?x i = (!) ?x i" 
-      by simp
-  next
-    show "⋀i. i ∈ seenR_run ((!) ?x) ((!) z) ?T ⟹ (!) z i = (!) ?x i"
-    proof -
-      fix i assume iSR: "i ∈ seenR_run ((!) ?x) ((!) z) ?T"
-      from SR_sub_read0 iSR have "i ∈ Base.read0 M ?x" by blast
-      with read0_sub_may have "i ∈ may_read" by blast
-      thus "(!) z i = (!) ?x i" by (simp add: z_def Z_def)
-    qed
-  qed
-
-  have "run ((!) ?x) oR ?T = run ((!) ?x) ((!) z) ?T"
-    by (simp add: run_xz_eq_xoR[symmetric])
-  also have "... = run ((!) ?x) ((!) ?x) ?T"
-    by (rule run_xz_eq_xx)
-  also have "... = Good as s ((!) ?x) ((!) ?x)"
-    by (rule run_xx_eq_Good_xx)
-  also have "... = Good as s ((!) ?x) ((!) z)"
-    by (simp add: Good_normalize_R[symmetric])
-  also have "... = Good as s ((!) ?x) oR"
-    by (simp add: Good_normalize_R)
-  finally show ?thesis by (simp add: RUN0)
+  have "run ((!) x) oR T = Good as s ((!) x) oR"
+    unfolding x_def T_def by (rule run_to_Good_with_left_enc)
+  with RUN0 show ?thesis by simp
 qed
 
 lemma run_T0_mixed_bridge:
   "run oL ((!) (x0 as s)) (T0 as s) = Good as s oL ((!) (x0 as s))"
-  by (simp add: run_drive_T0 drive_char_RHS_core)
+  using run_drive_T0 drive_char_RHS_core by simp
 
 lemma run_T0_left_bridge:
   "run ((!) (x0 as s)) oR (T0 as s) = Good as s ((!) (x0 as s)) oR"
-  by (simp add: run_drive_T0 drive_char_LHS_core)
+  using run_drive_T0 drive_char_LHS_core by simp
 
 lemma run_T0_encR_catalog:
   "run oL ((!) (x0 as s)) (T0 as s)
    = (∃jL<length (enumL as s kk). Lval_at as s oL jL ∈ set (enumR as s kk))"
-  by (simp add: run_T0_mixed_bridge Good_char_encR)
+  using run_T0_mixed_bridge Good_char_encR by simp
 
 lemma run_T0_encL_catalog:
   "run ((!) (x0 as s)) oR (T0 as s)
    = (∃jR<length (enumR as s kk). Rval_at as s oR jR ∈ set (enumL as s kk))"
-  by (simp add: run_T0_left_bridge Good_char_encL)
+  using run_T0_left_bridge Good_char_encL by simp
 
 (* 3) Mixed bridge: run on T0 with (oL, encR) equals Good with (oL, encR) *)
 
