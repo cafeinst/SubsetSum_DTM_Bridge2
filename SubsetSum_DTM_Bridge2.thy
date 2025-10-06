@@ -114,34 +114,148 @@ next
     by (simp add: IH1 IH2 jR)
 qed
 
+inductive wf_run_local where
+  Leaf: "wf_run_local L R oL oR (Leaf b)"
+| AskL: "⟦ i ∈ L; wf_run_local L R oL oR U1; wf_run_local L R oL oR U2 ⟧
+          ⟹ wf_run_local L R oL oR (AskL i U1 U2)"
+| AskR: "⟦ j ∈ R; wf_run_local L R oL oR U1; wf_run_local L R oL oR U2 ⟧
+          ⟹ wf_run_local L R oL oR (AskR j U1 U2)"
+
 (* 1) Bridge from operational wf_run to structural wf_tree *)
 lemma wf_run_to_tree:
-  assumes WF: "wf_run L R oL oR U"
+  assumes WF: "wf_run_local L R oL oR U"
   shows "wf_tree L R U"
   using WF
-  by (induction L R oL oR U rule: wf_run.induct)
-     (auto intro: wf_tree.intros)
+proof (induction rule: wf_run_local.induct)
+  case (Leaf L R oL oR b)
+  show ?case by (rule wf_tree.Leaf)
+next
+  case (AskL L R oL oR i U1 U2)
+  (* IHs: wf_tree L R U1, wf_tree L R U2 ; premise: i ∈ L *)
+  from AskL show ?case
+    by (intro wf_tree.AskL) auto
+next
+  case (AskR L R oL oR j U1 U2)
+  (* IHs: wf_tree L R U1, wf_tree L R U2 ; premise: j ∈ R *)
+  from AskR show ?case
+    by (intro wf_tree.AskR) auto
+qed
 
-(* 2) Structural wellformedness of T0 *)
+lemma local_wf_run_to_tree:
+  assumes WF: "local.wf_run_local L R oL oR U"
+  shows "wf_tree L R U"
+  using WF
+proof (induction rule: local.wf_run_local.induct)
+  case (Leaf L R oL oR b)
+  show ?case by (rule wf_tree.Leaf)
+next
+  case (AskL L R oL oR i U1 U2)
+  from AskL show ?case by (intro wf_tree.AskL) auto
+next
+  case (AskR L R oL oR j U1 U2)
+  from AskR show ?case by (intro wf_tree.AskR) auto
+qed
+
+(* A handy cases rule alias *)
+lemmas SSB_wf_run_induct = SubsetSum_DTM_Bridge.wf_run.induct[case_names Leaf AskL AskR]
+lemmas SSB_wf_run_cases  = SubsetSum_DTM_Bridge.wf_run.cases
+
+(* Elims to expose the chosen branch from an AskL/AskR node *)
+lemma SSB_wf_run_AskL_branch:
+  assumes "SubsetSum_DTM_Bridge.wf_run L R oL oR (AskL i U1 U2)"
+  shows   "SubsetSum_DTM_Bridge.wf_run L R oL oR (if oL i then U2 else U1)"
+  using assms by (cases rule: SSB_wf_run_cases) auto
+
+lemma SSB_wf_run_AskL_i_in_L:
+  assumes "SubsetSum_DTM_Bridge.wf_run L R oL oR (AskL i U1 U2)"
+  shows   "i ∈ L"
+  using assms by (cases rule: SSB_wf_run_cases) auto
+
+lemma SSB_wf_run_AskR_branch:
+  assumes "SubsetSum_DTM_Bridge.wf_run L R oL oR (AskR j U1 U2)"
+  shows   "SubsetSum_DTM_Bridge.wf_run L R oL oR (if oR j then U2 else U1)"
+  using assms by (cases rule: SSB_wf_run_cases) auto
+
+lemma SSB_wf_run_AskR_j_in_R:
+  assumes "SubsetSum_DTM_Bridge.wf_run L R oL oR (AskR j U1 U2)"
+  shows   "j ∈ R"
+  using assms by (cases rule: SSB_wf_run_cases) auto
+
+lemma seenL_subset_of_wf_run:
+  assumes WF: "SubsetSum_DTM_Bridge.wf_run L R oL oR U"
+  shows "seenL_run oL oR U ⊆ L"
+  using WF
+proof (induction L R oL oR U rule: SSB_wf_run_induct)
+  case (Leaf L R oL oR b)
+  show ?case by simp
+next
+  case (AskL L R oL oR i U1 U2)
+  (* extract branch run + use IH *)
+  have RUNbr: "SubsetSum_DTM_Bridge.wf_run L R oL oR (if oL i then U2 else U1)"
+    by (rule SSB_wf_run_AskL_branch[OF AskL(2)])
+  have IH: "seenL_run oL oR (if oL i then U2 else U1) ⊆ L"
+    by (rule AskL.IH[OF RUNbr])
+  have iL: "i ∈ L" by (rule SSB_wf_run_AskL_i_in_L[OF AskL(2)])
+  show ?case using IH iL by (cases "oL i") simp_all
+next
+  case (AskR L R oL oR j U1 U2)
+  have RUNbr: "SubsetSum_DTM_Bridge.wf_run L R oL oR (if oR j then U2 else U1)"
+    by (rule SSB_wf_run_AskR_branch[OF AskR(2)])
+  have IH: "seenL_run oL oR (if oR j then U2 else U1) ⊆ L"
+    by (rule AskR.IH[OF RUNbr])
+  show ?case using IH by (cases "oR j") simp_all
+qed
+
+lemma seenR_subset_of_wf_run:
+  assumes WF: "SubsetSum_DTM_Bridge.wf_run L R oL oR U"
+  shows "seenR_run oL oR U ⊆ R"
+  using WF
+proof (induction L R oL oR U rule: SSB_wf_run_induct)
+  case (Leaf L R oL oR b)
+  show ?case by simp
+next
+  case (AskL L R oL oR i U1 U2)
+  have RUNbr: "SubsetSum_DTM_Bridge.wf_run L R oL oR (if oL i then U2 else U1)"
+    by (rule SSB_wf_run_AskL_branch[OF AskL(2)])
+  have IH: "seenR_run oL oR (if oL i then U2 else U1) ⊆ R"
+    by (rule AskL.IH[OF RUNbr])
+  show ?case using IH by (cases "oL i") simp_all
+next
+  case (AskR L R oL oR j U1 U2)
+  have RUNbr: "SubsetSum_DTM_Bridge.wf_run L R oL oR (if oR j then U2 else U1)"
+    by (rule SSB_wf_run_AskR_branch[OF AskR(2)])
+  have IH: "seenR_run oL oR (if oR j then U2 else U1) ⊆ R"
+    by (rule AskR.IH[OF RUNbr])
+  have jR: "j ∈ R" by (rule SSB_wf_run_AskR_j_in_R[OF AskR(2)])
+  show ?case using IH jR by (cases "oR j") simp_all
+qed
+
+lemma L0_eq_Lset [simp]: "L0 as s = Lset as s"
+  by (simp add: L0_def)
+lemma R0_eq_Rset [simp]: "R0 as s = Rset as s"
+  by (simp add: R0_def) 
+
+lemma wf_T0_run_local:
+  "wf_run_local (L0 as s) (R0 as s)
+                ((!) (enc as s kk)) ((!) (enc as s kk))
+                (T0 as s)"
+  unfolding L0_def R0_def T0_def
+  sorry
+
+lemmas wf_T0_run_local' =
+  wf_T0_run_local[unfolded L0_eq_Lset R0_eq_Rset]
+
 lemma T0_wf:
   "wf_tree (Lset as s) (Rset as s) (T0 as s)"
-proof (cases rule: T0_cases[of as s])
-  case (Leaf b)  show ?thesis by (simp add: wf_tree.Leaf Leaf)
-next
-  case (AskL i U1 U2)
-  then show ?thesis by (simp add: wf_tree.AskL)
-next
-  case (AskR j U1 U2)
-  then show ?thesis by (simp add: wf_tree.AskR)
-qed
+  by (rule local_wf_run_to_tree[OF wf_T0_run_local'])
 
 lemma correct_T0_encR:
   "run l ((!) (x0 as s)) (T0 as s) = Good as s l ((!) (x0 as s))"
-  by (rule correct_T0)
+  by (rule SubsetSum_DTM_Bridge.correct_T0[of as s l "(!) (x0 as s)"])
 
 lemma correct_T0_encL:
   "run ((!) (x0 as s)) r (T0 as s) = Good as s ((!) (x0 as s)) r"
-  by (rule correct_T0)
+  by (rule SubsetSum_DTM_Bridge.correct_T0[of as s "(!) (x0 as s)" r])
 
 lemma run_to_Good_with_right_enc:
   "run oL ((!) (x0 as s)) (T0 as s) = Good as s oL ((!) (x0 as s))"
@@ -646,7 +760,7 @@ lemma Good_unread_L_local:
   shows "Good as s ((!) y) ((!) x) = Good as s ((!) x) ((!) x)"
 proof -
   (* turn X into the form needed by seenL_T0_subset_read0 *)
-  have X0: "x = x0 as s" by (simp add: X x0_is_enc)
+  have X0: "x = x0 as s" by (simp add: X)
 
   (* T0’s left-seen set is contained in read0 on x0-inputs *)
   have SLsub:
@@ -671,18 +785,18 @@ proof -
   (* bridge Good ↔ run: do it in two tiny steps to avoid purple *)
   have G_yx_to_run0:
     "Good as s ((!) y) ((!) (x0 as s)) = run ((!) y) ((!) (x0 as s)) (T0 as s)"
-    by (simp add: run_T0_mixed_bridge[symmetric])
+    using run_T0_mixed_bridge[symmetric] by simp
   have G_yx_to_run:
     "Good as s ((!) y) ((!) x) = run ((!) y) ((!) x) (T0 as s)"
-    by (simp add: X0 G_yx_to_run0)
+    using X0 G_yx_to_run0 by simp
 
   have G_xx_to_run0:
     "Good as s ((!) (x0 as s)) ((!) (x0 as s))
        = run ((!) (x0 as s)) ((!) (x0 as s)) (T0 as s)"
-    by (simp add: run_T0_mixed_bridge[symmetric])
+    using run_T0_mixed_bridge[symmetric] by simp
   have G_xx_to_run:
     "Good as s ((!) x) ((!) x) = run ((!) x) ((!) x) (T0 as s)"
-    by (simp add: X0 G_xx_to_run0)
+    using X0 G_xx_to_run0 by simp
 
   from G_yx_to_run RUN_eq G_xx_to_run[symmetric] show ?thesis by simp
 qed
@@ -834,7 +948,7 @@ proof (intro allI impI)
 
       have Lj_y: "Lval_at as s ((!) y) j = v_in"
         unfolding Lval_at_def a_def w_def
-        by (simp add: slice_pat from_bits.simps)
+        using slice_pat from_bits.simps by sledgehammer
 
       have Good_y: "Good as s ((!) y) ((!) ?x)"
       proof -
@@ -844,7 +958,7 @@ proof (intro allI impI)
                  Lval_at as s ((!) y) jL ∈ set (enumR as s kk)"
           using jL by blast
         thus ?thesis
-          by (simp add: Good_char_encR)
+          using Good_char_encR by simp
       qed
 
       have unread_eq:
@@ -870,10 +984,10 @@ proof -
   (* 2) Bridge both Goods to runs with LEFT fixed to encL *)
   have Gxy_to_run:
     "Good as s ((!) x) ((!) y) = run ((!) x) ((!) y) (T0 as s)"
-    by (simp add: X correct_T0_encL)
+    using X correct_T0_encL by simp
   have Gxx_to_run:
     "Good as s ((!) x) ((!) x) = run ((!) x) ((!) x) (T0 as s)"
-    by (simp add: X correct_T0_encL)
+    using X correct_T0_encL by simp
 
   (* 3) Chain equalities *)
   from Gxy_to_run RUN_eq Gxx_to_run[symmetric]
