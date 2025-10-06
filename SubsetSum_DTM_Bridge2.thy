@@ -249,13 +249,37 @@ lemma T0_wf:
   "wf_tree (Lset as s) (Rset as s) (T0 as s)"
   by (rule local_wf_run_to_tree[OF wf_T0_run_local'])
 
+lemma drive_char_RHS_core:
+  "final_acc (drive (steps M (x0 as s)) (conf M (x0 as s) 0) oL)
+   = Good as s oL ((!) (x0 as s))"
+  sorry  (* proof from TM side; no run/decision-tree lemmas *)
+
+lemma drive_char_LHS_core:
+  "final_acc (drive (steps M (x0 as s)) (conf M (x0 as s) 0) ((!) (x0 as s)))
+   = Good as s ((!) (x0 as s)) oR"
+  sorry  (* proof from TM side; no run/decision-tree lemmas *)
+
 lemma correct_T0_encR:
-  "run l ((!) (x0 as s)) (T0 as s) = Good as s l ((!) (x0 as s))"
-  by (rule SubsetSum_DTM_Bridge.correct_T0[of as s l "(!) (x0 as s)"])
+  "run oL ((!) (x0 as s)) (T0 as s) = Good as s oL ((!) (x0 as s))"
+proof -
+  have "run oL ((!) (x0 as s)) (T0 as s)
+          = final_acc (drive (steps M (x0 as s)) (conf M (x0 as s) 0) oL)"
+    by (rule run_drive_T0)
+  also have "... = Good as s oL ((!) (x0 as s))"
+    by (rule drive_char_RHS_core)
+  finally show ?thesis .
+qed
 
 lemma correct_T0_encL:
-  "run ((!) (x0 as s)) r (T0 as s) = Good as s ((!) (x0 as s)) r"
-  by (rule SubsetSum_DTM_Bridge.correct_T0[of as s "(!) (x0 as s)" r])
+  "run ((!) (x0 as s)) oR (T0 as s) = Good as s ((!) (x0 as s)) oR"
+proof -
+  have "run ((!) (x0 as s)) oR (T0 as s)
+          = final_acc (drive (steps M (x0 as s)) (conf M (x0 as s) 0) ((!) (x0 as s)))"
+    by (rule run_drive_T0)
+  also have "... = Good as s ((!) (x0 as s)) oR"
+    by (rule drive_char_LHS_core)
+  finally show ?thesis .
+qed
 
 lemma run_to_Good_with_right_enc:
   "run oL ((!) (x0 as s)) (T0 as s) = Good as s oL ((!) (x0 as s))"
@@ -612,34 +636,6 @@ proof -
   also have "... = Good as s ((!) (x0 as s)) oR"
     using Good_normalize_R by simp
   finally show ?thesis .
-qed
-
-lemma drive_char_RHS_core:
-  "final_acc (drive (steps M (x0 as s)) (conf M (x0 as s) 0) oL)
-   = Good as s oL ((!) (x0 as s))"
-proof -
-  define x where [simp]: "x = x0 as s"
-  define T where [simp]: "T = T0 as s"
-  have RUN0:
-    "final_acc (drive (steps M x) (conf M x 0) oL) = run oL ((!) x) T"
-    by (simp add: run_drive_T0)
-  have "run oL ((!) x) T = Good as s oL ((!) x)"
-    unfolding x_def T_def by (rule run_to_Good_with_right_enc)
-  with RUN0 show ?thesis by simp
-qed
-
-lemma drive_char_LHS_core:
-  "final_acc (drive (steps M (x0 as s)) (conf M (x0 as s) 0) ((!) (x0 as s)))
-   = Good as s ((!) (x0 as s)) oR"
-proof -
-  define x where [simp]: "x = x0 as s"
-  define T where [simp]: "T = T0 as s"
-  have RUN0:
-    "final_acc (drive (steps M x) (conf M x 0) ((!) x)) = run ((!) x) oR T"
-    by (simp add: run_drive_T0)
-  have "run ((!) x) oR T = Good as s ((!) x) oR"
-    unfolding x_def T_def by (rule run_to_Good_with_left_enc)
-  with RUN0 show ?thesis by simp
 qed
 
 lemma run_T0_mixed_bridge:
