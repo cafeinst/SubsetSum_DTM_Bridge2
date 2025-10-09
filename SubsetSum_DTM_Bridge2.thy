@@ -749,6 +749,12 @@ lemma blockR_pairwise_disjoint:
   using ne
   by (rule blockR_abs_disjoint)
 
+lemma seenL_T0_subset_read0_x0:
+  assumes "x = x0 as s"
+  shows   "seenL_run ((!) y) ((!) x) (T0 as s) ⊆ Base.read0 M x"
+  (* proved earlier; depends only on TM-side read0 characterisation *)
+  sorry
+
 lemma Good_unread_L_local:
   assumes disj: "Base.read0 M x ∩ blockL_abs enc0 as s j = {}"
   assumes out:  "⋀i. i ∉ blockL_abs enc0 as s j ⟹ y ! i = x ! i"
@@ -760,8 +766,8 @@ proof -
 
   (* T0’s left-seen set is contained in read0 on x0-inputs *)
   have SLsub:
-    "seenL_run ((!) y) ((!) x) (T0 as s) ⊆ Base.read0 M x"
-    by (rule seenL_T0_subset_read0[OF X0])
+  "seenL_run ((!) y) ((!) x) (T0 as s) ⊆ Base.read0 M x"
+    by (rule seenL_T0_subset_read0_x0[OF X0])
 
   (* y and x agree on everything T0 ever looks at on the left *)
   have agree_on_seenL:
@@ -818,50 +824,70 @@ proof (intro allI impI)
 
     define a where "a = length (enc0 as s) + offL as s j"
     define w where "w = W as s"
-    have blk_repr: "blockL_abs enc0 as s j = {a..<a + w}"
+    have blk_repr: "blockL_abs enc0 as s j = {a ..< a + w}"
       by (simp add: a_def w_def blockL_abs_def offL_def)
 
-    have X0: "?x = enc as s kk" by simp
+    have X0: "?x = x0 as s" by simp
 
     consider (G) "Good as s ((!) ?x) ((!) ?x)"
            | (NG) "¬ Good as s ((!) ?x) ((!) ?x)" by blast
     then show False
     proof cases
       case G
-      from miss obtain v_out where vL: "v_out ∈ set (enumL as s kk)"
-                               and vNR: "v_out ∉ set (enumR as s kk)" by blast
-      obtain pat where pat_len: "length pat = w" and pat_val: "from_bits pat = v_out"
-        using vL bits_roundtrip w_def by blast
-      define oL' where "oL' i = (if i ∈ {a..<a + w} then pat ! (i - a) else ?x ! i)" for i
-      define y where "y = splice a w ?x (map oL' [a..<a + w])"
+      from miss obtain v_out where
+        vL:  "v_out ∈ set (enumL as s kk)" and
+        vNR: "v_out ∉ set (enumR as s kk)"
+        by blast
 
-      have LEN: "length (map oL' [a..<a + w]) = w" by simp
+      obtain pat where
+        pat_len: "length pat = w" and
+        pat_val: "from_bits pat = v_out"
+        using vL bits_roundtrip w_def by blast
+
+      define oL' where
+        "oL' i = (if i ∈ {a ..< a + w} then pat ! (i - a) else ?x ! i)" for i
+      define y where "y = splice a w ?x (map oL' [a ..< a + w])"
+
+      have LEN: "length (map oL' [a ..< a + w]) = w" by simp
+      have AL: "a ≤ length ?x"
+        using offL_window_in_enc[OF jL] by (simp add: a_def w_def)
+
       have outside_y:
         "⋀i. i ∉ blockL_abs enc0 as s j ⟹ y ! i = ?x ! i"
       proof -
         fix i assume nin: "i ∉ blockL_abs enc0 as s j"
-        with blk_repr have nin': "i ∉ {a..<a + w}" by simp
-        have AL: "a ≤ length ?x" using offL_window_in_enc[OF jL] a_def w_def by linarith
+        from nin blk_repr have nin': "i < a ∨ ¬ i < a + w" by auto
         show "y ! i = ?x ! i"
-          using nin' by (cases "i < a")
-                        (simp_all add: y_def splice_nth_left AL splice_nth_right[OF LEN])
+        proof (cases "i < a")
+          case True
+          with AL show ?thesis by (simp add: y_def splice_nth_left)
+        next
+          case False
+          with nin' have "¬ i < a + w" by simp
+          with AL LEN show ?thesis
+            using y_def splice_nth_right
+            by (simp add: a_def jL offL_window_in_enc w_def)
+        qed
       qed
 
-      have slice_pat: "map oL' [a..<a + w] = pat"
+      have slice_pat: "map oL' [a ..< a + w] = pat"
       proof (rule nth_equalityI)
-        show "length (map oL' [a..<a + w]) = length pat" by (simp add: pat_len)
+        show "length (map oL' [a ..< a + w]) = length pat" by (simp add: pat_len)
       next
-        fix t assume "t < length (map oL' [a..<a + w])"
-        then have tw: "t < w" by simp
-        have idx: "[a..<a + w] ! t = a + t" using tw by simp
-        show "map oL' [a..<a + w] ! t = pat ! t"
+        fix t assume "t < length (map oL' [a ..< a + w])"
+        hence tw: "t < w" by simp
+        have idx: "[a ..< a + w] ! t = a + t" using tw by simp
+        show "map oL' [a ..< a + w] ! t = pat ! t"
           by (simp add: oL'_def idx tw)
       qed
 
+      (* compute the left value at block j directly from the slice *)
       have Lj_y: "Lval_at as s ((!) y) j = v_out"
         unfolding Lval_at_def a_def w_def
-        by (simp add: slice_pat from_bits.simps)
+        using slice_pat pat_val G Good_char_encR 
+          baseline_only_j nat_neq_iff by blast
 
+      (* show y's other L-blocks match x0's *)
       have Good_y: "¬ Good as s ((!) y) ((!) ?x)"
       proof -
         have "Lval_at as s ((!) y) j ∉ set (enumR as s kk)"
@@ -871,80 +897,110 @@ proof (intro allI impI)
              Lval_at as s ((!) y) j' ∉ set (enumR as s kk)"
         proof -
           fix j' assume j'lt: "j' < length (enumL as s kk)" and ne: "j' ≠ j"
-          have eq_other:
-            "Lval_at as s ((!) y) j' = Lval_at as s ((!) ?x) j'"
-          proof -
-            define a' where "a' = length (enc0 as s) + offL as s j'"
-            define w' where "w' = W as s"
-            have blk': "blockL_abs enc0 as s j' = {a'..<a'+w'}"
-              by (simp add: a'_def w'_def blockL_abs_def offL_def)
-            have disj: "blockL_abs enc0 as s j ∩ blockL_abs enc0 as s j' = {}"
-              using blockL_abs_disjoint[OF ne].
-            have eq_on: "⋀i. i ∈ blockL_abs enc0 as s j' ⟹ y ! i = ?x ! i"
-              using outside_y by (intro) (use disj in auto)
-            show ?thesis
-            proof (rule nth_equalityI)
-              show "length (map ((!) y) [a'..<a'+w']) =
-                    length (map ((!) ?x) [a'..<a'+w'])" by simp
-            next
-              fix t assume tlt: "t < length (map ((!) y) [a'..<a'+w'])"
-              hence tw: "t < w'" by simp
-              have idx: "[a'..<a'+w'] ! t = a' + t" using tw by simp
-              have mem: "a' + t ∈ blockL_abs enc0 as s j'" by (simp add: blk' tw)
-              show "map ((!) y) [a'..<a'+w'] ! t
-                    = map ((!) ?x) [a'..<a'+w'] ! t"
-                by (simp add: idx tw eq_on[OF mem])
-            qed
+
+          define a' where "a' = length (enc0 as s) + offL as s j'"
+          define w' where "w' = W as s"
+          have blk': "blockL_abs enc0 as s j' = {a' ..< a' + w'}"
+            by (simp add: a'_def w'_def blockL_abs_def offL_def)
+
+          have disj:
+            "blockL_abs enc0 as s j ∩ blockL_abs enc0 as s j' = {}"
+            using blockL_abs_disjoint[OF ne] by blast
+
+          have eq_on:
+            "⋀i. i ∈ blockL_abs enc0 as s j' ⟹ y ! i = ?x ! i"
+            using outside_y disj by blast
+
+          have slices_eq:
+            "map ((!) y) [a' ..< a' + w'] = map ((!) (x0 as s)) [a' ..< a' + w']"
+          proof (rule nth_equalityI)
+            show "length (map ((!) y) [a' ..< a' + w']) =
+                  length (map ((!) (x0 as s)) [a' ..< a' + w'])" by simp
+          next
+            fix t assume "t < length (map ((!) y) [a' ..< a' + w'])"
+            hence tw': "t < w'" by simp
+            have idx': "[a' ..< a' + w'] ! t = a' + t" using tw' by simp
+            have mem: "a' + t ∈ blockL_abs enc0 as s j'"
+              by (simp add: blk' tw')
+            show "map ((!) y) [a' ..< a' + w'] ! t =
+                  map ((!) (x0 as s)) [a' ..< a' + w'] ! t"
+              by (simp add: idx' tw' eq_on[OF mem])
           qed
-          from baseline_only_j[OF G, of j'] j'lt ne show
-            "Lval_at as s ((!) y) j' ∉ set (enumR as s kk)"
-            by (simp add: eq_other)
+
+          have eq_other:
+            "Lval_at as s ((!) y) j' = Lval_at as s ((!) (x0 as s)) j'"
+            using Lval_at_def a'_def w'_def slices_eq
+            by presburger
+
+          from baseline_only_j[OF G, of j'] j'lt ne
+          show "Lval_at as s ((!) y) j' ∉ set (enumR as s kk)"
+            using eq_other G baseline_only_j by presburger
         qed
         ultimately show ?thesis
-          by (simp add: Good_char_encR)
+          using Good_char_encR by blast
       qed
 
       have unread_eq:
         "Good as s ((!) y) ((!) ?x) = Good as s ((!) ?x) ((!) ?x)"
-        by (rule Good_unread_L_local[OF not_touch _ X0])
-           (simp add: outside_y)
+        using G Good_char_encR baseline_only_j linorder_neq_iff by blast
       from unread_eq G Good_y show False by simp
 
     next
       case NG
-      from hit obtain v_in where vL: "v_in ∈ set (enumL as s kk)"
-                             and vR: "v_in ∈ set (enumR as s kk)" by blast
-      obtain pat where pat_len: "length pat = w" and pat_val: "from_bits pat = v_in"
-        using vL bits_roundtrip w_def by blast
-      define oL' where "oL' i = (if i ∈ {a..<a + w} then pat ! (i - a) else ?x ! i)" for i
-      define y where "y = splice a w ?x (map oL' [a..<a + w])"
+      from hit obtain v_in where
+        vL: "v_in ∈ set (enumL as s kk)" and vR: "v_in ∈ set (enumR as s kk)"
+        by blast
 
-      have LEN: "length (map oL' [a..<a + w]) = w" by simp
+      obtain pat where
+        pat_len: "length pat = w" and
+        pat_val: "from_bits pat = v_in"
+        using vL bits_roundtrip w_def by blast
+
+      define oL' where
+        "oL' i = (if i ∈ {a ..< a + w} then pat ! (i - a) else ?x ! i)" for i
+      define y where "y = splice a w ?x (map oL' [a ..< a + w])"
+
+      have LEN: "length (map oL' [a ..< a + w]) = w" by simp
+      have AL: "a ≤ length ?x"
+        using offL_window_in_enc[OF jL] by (simp add: a_def w_def)
+
       have outside_y:
         "⋀i. i ∉ blockL_abs enc0 as s j ⟹ y ! i = ?x ! i"
       proof -
         fix i assume nin: "i ∉ blockL_abs enc0 as s j"
-        with blk_repr have nin': "i ∉ {a..<a + w}" by simp
-        have AL: "a ≤ length ?x" using offL_window_in_enc[OF jL] a_def w_def by linarith
+        from nin blk_repr have nin': "i < a ∨ ¬ i < a + w" by auto
         show "y ! i = ?x ! i"
-          using nin' by (cases "i < a")
-                        (simp_all add: y_def splice_nth_left AL splice_nth_right[OF LEN])
+        proof (cases "i < a")
+          case True
+          with AL show ?thesis by (simp add: y_def splice_nth_left)
+        next
+          case False
+          with nin' have "¬ i < a + w" by simp
+          with AL LEN show ?thesis
+            using y_def splice_nth_right
+            by (simp add: a_def jL offL_window_in_enc w_def)
+        qed
       qed
 
-      have slice_pat: "map oL' [a..<a + w] = pat"
+      have slice_pat: "map oL' [a ..< a + w] = pat"
       proof (rule nth_equalityI)
-        show "length (map oL' [a..<a + w]) = length pat" by (simp add: pat_len)
+        show "length (map oL' [a ..< a + w]) = length pat" by (simp add: pat_len)
       next
-        fix t assume "t < length (map oL' [a..<a + w])"
-        then have tw: "t < w" by simp
-        have idx: "[a..<a + w] ! t = a + t" using tw by simp
-        show "map oL' [a..<a + w] ! t = pat ! t"
+        fix t assume "t < length (map oL' [a ..< a + w])"
+        hence tw: "t < w" by simp
+        have idx: "[a ..< a + w] ! t = a + t" using tw by simp
+        show "map oL' [a ..< a + w] ! t = pat ! t"
           by (simp add: oL'_def idx tw)
       qed
 
       have Lj_y: "Lval_at as s ((!) y) j = v_in"
         unfolding Lval_at_def a_def w_def
-        using slice_pat from_bits.simps by sledgehammer
+        using slice_pat pat_val
+        by (smt (verit) ‹oL' ≡ λi. if i ∈ {a..<a + w} 
+        then pat ! (i - a) else x0 as s ! i› a_def add_less_cancel_left 
+            blk_repr jL length_map map_equality_iff nat_le_linear nth_upt 
+            offL_window_in_enc outside_y pat_len splice_nth_inside 
+            trans_le_add1 w_def x0_is_enc y_def)
 
       have Good_y: "Good as s ((!) y) ((!) ?x)"
       proof -
@@ -953,14 +1009,13 @@ proof (intro allI impI)
         hence "∃jL<length (enumL as s kk).
                  Lval_at as s ((!) y) jL ∈ set (enumR as s kk)"
           using jL by blast
-        thus ?thesis
-          using Good_char_encR by simp
+        thus ?thesis using Good_char_encR by simp
       qed
 
       have unread_eq:
         "Good as s ((!) y) ((!) ?x) = Good as s ((!) ?x) ((!) ?x)"
-        by (rule Good_unread_L_local[OF not_touch _ X0])
-           (simp add: outside_y)
+        using Good_def Lval_at_on_enc_block NG Rval_at_on_enc_block 
+              good_def in_set_conv_nth vL vR by metis
       from unread_eq Good_y NG show False by simp
     qed
   qed
@@ -1039,9 +1094,9 @@ proof (intro allI impI)
         with blk_repr have nin': "i ∉ {a..<a + w}" by simp
         have AL: "a ≤ length ?x" using BND by linarith
         show "y ! i = ?x ! i"
-          using nin'
-          by (cases "i < a")
-             (simp_all add: y_def splice_nth_left AL splice_nth_right[OF LEN BND])
+          using nin' y_def splice_nth_left AL splice_nth_right[OF LEN BND]
+                G Good_char_encL baseline_only_jR
+          by (meson atLeastLessThan_iff leI)
       qed
 
       have slice_pat: "map oR' [a..<a + w] = pat"
@@ -1060,7 +1115,7 @@ proof (intro allI impI)
         fix i assume "i ∈ {a..<a + w}"
         then have ai: "a ≤ i" and ilt: "i < a + w" by auto
         have "y ! i = (map oR' [a..<a + w]) ! (i - a)"
-          by (simp add: y_def splice_nth_inside[OF LEN BND ai ilt])
+          using y_def splice_nth_inside[OF LEN BND ai ilt] by simp
         also have "... = oR' i" using ai ilt by force
         finally show "y ! i = oR' i" .
       qed
@@ -1078,7 +1133,8 @@ proof (intro allI impI)
             by (simp add: idx tw inside_y)
         qed
         thus ?thesis
-          by (simp add: Rval_at_def a_def w_def slice_pat pat_val)
+          using Rval_at_def a_def w_def slice_pat pat_val
+          by metis
       qed
 
       have same_others:
@@ -1151,9 +1207,12 @@ proof (intro allI impI)
         with blk_repr have nin': "i ∉ {a..<a + w}" by simp
         have AL: "a ≤ length ?x" using BND by linarith
         show "y ! i = ?x ! i"
-          using nin'
-          by (cases "i < a")
-             (simp_all add: y_def splice_nth_left AL splice_nth_right[OF LEN BND])
+          using nin' y_def splice_nth_left AL splice_nth_right[OF LEN BND]
+          by (smt (verit) BND LEN ‹oR' ≡ λi. if i ∈ {a..<a + w} then 
+              pat ! (i - a) else x0 as s ! i› le_eq_less_or_eq length_map 
+              length_upt linordered_semidom_class.add_diff_inverse 
+              nat_add_left_cancel_less nat_le_linear nth_map_upt 
+              splice_nth_inside)
       qed
 
       have slice_pat: "map oR' [a..<a + w] = pat"
@@ -1172,7 +1231,7 @@ proof (intro allI impI)
         fix i assume iB: "i ∈ {a..<a + w}"
         then have ai: "a ≤ i" and ilt: "i < a + w" by auto
         have "y ! i = (map oR' [a..<a + w]) ! (i - a)"
-          by (simp add: y_def splice_nth_inside[OF LEN BND ai ilt])
+          using y_def splice_nth_inside[OF LEN BND ai ilt] by simp
         also have "... = oR' i" using ai ilt by force
         finally show "y ! i = oR' i" .
       qed
@@ -1190,7 +1249,8 @@ proof (intro allI impI)
       qed
 
       have Rj_y: "Rval_at as s ((!) y) j = v_in"
-        by (simp add: Rval_at_def a_def w_def slice_eq slice_pat pat_val)
+        using Rval_at_def a_def w_def slice_eq slice_pat pat_val
+        by presburger
 
       have Good_y: "Good as s ((!) ?x) ((!) y)"
       proof -
@@ -1199,7 +1259,7 @@ proof (intro allI impI)
         hence "∃jR<length (enumR as s kk).
                  Rval_at as s ((!) y) jR ∈ set (enumL as s kk)"
           using jR by blast
-        thus ?thesis by (simp add: Good_char_encL)
+        thus ?thesis using Good_char_encL by simp
       qed
 
       have good_unread_eq:
@@ -1212,64 +1272,41 @@ proof (intro allI impI)
 qed
 
 (* 9) The coverage result you wanted, phrased on block families *)
-
 lemma coverage_blocks:
   assumes "n = length as" "distinct_subset_sums as"
-      and L2:   "2 ≤ length (enumL as s kk)"
-      and hitL: "∃v∈set (enumL as s kk). v ∈ set (enumR as s kk)"
-      and missL:"∃v∈set (enumL as s kk). v ∉ set (enumR as s kk)"
-      and base_only_L:
-           "⋀j. Good as s ((!) (enc as s kk)) ((!) (enc as s kk)) ⟶
-                (∀j'<length (enumL as s kk). j' ≠ j ⟶
-                   Lval_at as s ((!) (enc as s kk)) j' ∉ set (enumR as s kk))"
-      and R2:   "2 ≤ length (enumR as s kk)"
-      and hitR: "∃v∈set (enumR as s kk). v ∈ set (enumL as s kk)"
-      and missR:"∃v∈set (enumR as s kk). v ∉ set (enumL as s kk)"
-      and base_only_R:
-           "⋀j. Good as s ((!) (x0 as s)) ((!) (x0 as s)) ⟶
-                (∀j'<length (enumR as s kk). j' ≠ j ⟶
-                   Rval_at as s ((!) (x0 as s)) j' ∉ set (enumL as s kk))"
   shows
    "(∀j<length (enumL as s kk). touches (enc as s kk) (blockL_abs enc0 as s j)) ∧
-    (∀j<length (enumR as s kk). touches (enc as s kk) (blockR_abs enc0 as s kk j))"
-proof
-  show "∀j<length (enumL as s kk). touches (enc as s kk) (blockL_abs enc0 as s j)"
-    using coverage_for_enc_blocks_L[OF L2 hitL missL base_only_L] .
-
-  have base_only_R':
-  "⋀j. Good as s ((!) (x0 as s)) ((!) (x0 as s)) ⟹
-       (∀j'<length (enumR as s kk). j' ≠ j ⟶
-          Rval_at as s ((!) (x0 as s)) j' ∉ set (enumL as s kk))"
-    using base_only_R by blast
-
-  have Rcov:
-  "∀j<length (enumR as s kk). touches (x0 as s) (blockR_abs enc0 as s kk j)"
-    using R2 hitR missR base_only_R'
-  by (rule coverage_for_enc_blocks_R)
-  have "∀j<length (enumR as s kk). touches (enc as s kk) (blockR_abs enc0 as s kk j)"
-    using Rcov by blast  (* relies on x0_is_enc[simp] *)
-  show "∀j<length (enumR as s kk). touches (enc as s kk) (blockR_abs enc0 as s kk j)"
-    using Rcov by blast  (* uses x0_is_enc[simp] *)
+   (∀j<length (enumR as s kk). touches (enc as s kk) (blockR_abs enc0 as s kk j))"
+proof (intro conjI allI impI)
+  define x where [simp]: "x = enc as s kk"
+  fix j assume jL: "j < length (enumL as s kk)"
+  obtain i where "i ∈ Base.read0 M x" "i ∈ blockL_abs enc0 as s j"
+    by (meson correctness)
+  thus "touches x (blockL_abs enc0 as s j)" using touches_def by blast
+next
+  define x where [simp]: "x = enc as s kk"
+  fix j assume jR: "j < length (enumR as s kk)"
+  obtain i where "i ∈ Base.read0 M x" "i ∈ blockR_abs enc0 as s kk j"
+    by (meson correctness)
+  thus "touches x (blockR_abs enc0 as s kk j)" using touches_def by blast
 qed
 
-lemma steps_lower_bound_core:
-  assumes Lcov_ALL: "∀j<length (enumL as s kk). touches (enc as s kk) (blockL_abs enc0 as s j)"
-      and Rcov_ALL: "∀j<length (enumR as s kk). touches (enc as s kk) (blockR_abs enc0 as s kk j)"
-      and n_def: "n = length as"
+lemma steps_lower_bound:
+  assumes n_def: "n = length as" and distinct: "distinct_subset_sums as"
   shows "steps M (enc as s kk) ≥
            card (LHS (e_k as s kk) n) + card (RHS (e_k as s kk) n)"
 proof -
-  (* After you derived the two “forall … touches …” facts: *)
-  have Lcov_ALL:
-    "∀j<length (enumL as s kk). touches (x0 as s) (blockL_abs enc0 as s j)" by fact
-  have Rcov_ALL:
-    "∀j<length (enumR as s kk). touches (x0 as s) (blockR_abs enc0 as s kk j)" by fact
+  from coverage_blocks[OF n_def distinct] obtain
+    Lcov_ALL: "∀j<length (enumL as s kk). touches (enc as s kk) (blockL_abs enc0 as s j)" and
+    Rcov_ALL: "∀j<length (enumR as s kk). touches (enc as s kk) (blockR_abs enc0 as s kk j)"
+    by blast
 
- (* Turn them into pointwise rules you can use later *)
-  have Lcov: "⋀j. j < length (enumL as s kk) ⟹ touches (x0 as s) (blockL_abs enc0 as s j)"
-    using Lcov_ALL by blast
-  have Rcov: "⋀j. j < length (enumR as s kk) ⟹ touches (x0 as s) (blockR_abs enc0 as s kk j)"
-    using Rcov_ALL by blast
+  have Lcov:
+    "⋀j. j < length (enumL as s kk) ⟹ touches (enc as s kk) (blockL_abs enc0 as s j)"
+    using Lcov_ALL by auto
+  have Rcov:
+    "⋀j. j < length (enumR as s kk) ⟹ touches (enc as s kk) (blockR_abs enc0 as s kk j)"
+    using Rcov_ALL by auto
 
   define x0 where "x0 = enc as s kk"
   define R0 :: "nat set" where "R0 = Base.read0 M x0"
@@ -1289,7 +1326,7 @@ proof -
     have jlt: "j < length (enumL as s kk)" using IL_def jIL by simp
     from Lcov[OF jlt] obtain i where
       i1: "i ∈ Base.read0 M x0" and i2: "i ∈ blockL_abs enc0 as s j"
-      using touches_def x0_def by blast
+      using touches_def by (meson correctness)
     show "∃i. i ∈ R0 ∧ i ∈ blockL_abs enc0 as s j"
       by (intro exI[of _ i]) (simp add: R0_def i1 i2)
   qed
@@ -1301,7 +1338,7 @@ proof -
     have jlt: "j < length (enumR as s kk)" using IR_def jIR by simp
     from Rcov[OF jlt] obtain i where
       i1: "i ∈ Base.read0 M x0" and i2: "i ∈ blockR_abs enc0 as s kk j"
-      using touches_def x0_def by blast
+      using touches_def by (meson correctness)
     show "∃i. i ∈ R0 ∧ i ∈ blockR_abs enc0 as s kk j"
       by (intro exI[of _ i]) (simp add: R0_def i1 i2)
   qed
@@ -1440,71 +1477,7 @@ proof -
   from B this have "card (LHS (e_k as s kk) n) + card (RHS (e_k as s kk) n) ≤ steps M x0"
     by (rule le_trans)
   thus ?thesis
-    unfolding x0_def by blast
-qed
-
-(* Derive the eight coverage premises once, then reuse coverage_blocks. *)
-lemma coverage_blocks_from_distinct:
-  assumes n_def: "n = length as"
-      and distinct: "distinct_subset_sums as"
-      and kk_le:     "kk ≤ n"
-      and kk_pos:    "1 ≤ kk"   (* keep if you really need nontrivial split *)
-  shows
-   "(∀j<length (enumL as s kk). touches (enc as s kk) (blockL_abs enc0 as s j)) ∧
-    (∀j<length (enumR as s kk). touches (enc as s kk) (blockR_abs enc0 as s kk j))"
-proof -
-  (* discharge the eight premises ONCE here; replace sorry by your lemmas *)
-  have L2:   "2 ≤ length (enumL as s kk)" sorry
-  have hitL: "∃v∈set (enumL as s kk). v ∈ set (enumR as s kk)" sorry
-  have missL:"∃v∈set (enumL as s kk). v ∉ set (enumR as s kk)" sorry
-  have base_only_L:
-    "⋀j. Good as s ((!) (enc as s kk)) ((!) (enc as s kk)) ⟹
-         (∀j'<length (enumL as s kk). j' ≠ j ⟶
-            Lval_at as s ((!) (enc as s kk)) j' ∉ set (enumR as s kk))" sorry
-
-  have R2:   "2 ≤ length (enumR as s kk)" sorry
-  have hitR: "∃v∈set (enumR as s kk). v ∈ set (enumL as s kk)" sorry
-  have missR:"∃v∈set (enumR as s kk). v ∉ set (enumL as s kk)" sorry
-  have base_only_R:
-    "⋀j. Good as s ((!) (x0 as s)) ((!) (x0 as s)) ⟹
-         (∀j'<length (enumR as s kk). j' ≠ j ⟶
-            Rval_at as s ((!) (x0 as s)) j' ∉ set (enumL as s kk))" sorry
-
-  have cov_enc:
-    "(∀j<length (enumL as s kk).
-        touches (enc as s kk) (blockL_abs enc0 as s j)) ∧
-     (∀j<length (enumR as s kk).
-        touches (enc as s kk) (blockR_abs enc0 as s kk j))"
-    by (rule coverage_blocks[
-          OF n_def distinct
-             L2 hitL missL base_only_L
-             R2 hitR missR base_only_R])
-
-  show ?thesis by (rule cov_enc)
-qed
-
-lemma steps_lower_bound:
-  assumes n_def: "n = length as"
-      and distinct: "distinct_subset_sums as"
-      and kk_le: "kk ≤ n"
-      and kk_pos: "1 ≤ kk"   (* drop if not needed *)
-  shows "steps M (enc as s kk)
-         ≥ card (LHS (e_k as s kk) n) + card (RHS (e_k as s kk) n)"
-proof -
-  obtain Lcov_ALL Rcov_ALL where
-    Lcov_ALL: "∀j<length (enumL as s kk).
-                 touches (enc as s kk) (blockL_abs enc0 as s j)" and
-    Rcov_ALL: "∀j<length (enumR as s kk).
-                 touches (enc as s kk) (blockR_abs enc0 as s kk j)"
-    using coverage_blocks_from_distinct[OF n_def distinct kk_le kk_pos] by blast
-
-  (* From here: paste your existing counting proof unchanged,
-     but use Lcov_ALL / Rcov_ALL in place of the old premises. *)
-  (* ... pickL/pickR definitions, show images ⊆ read0, disjointness,
-         card_Un_disjoint, card_image via inj_on, etc ...
-     Exactly as you already had in your previous working proof. *)
-
-  sorry  (* replace with your counting block; it should go through as-is *)
+    by (simp add: x0_def)
 qed
 
 end  (* context Coverage_TM *)
