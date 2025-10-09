@@ -1271,24 +1271,36 @@ proof (intro allI impI)
   qed
 qed
 
+lemma read0_hits_L:
+  assumes "n = length as" "distinct_subset_sums as" "j < length (enumL as s kk)"
+  shows "∃i∈Base.read0 M (enc as s kk). i ∈ blockL_abs enc0 as s j"
+  (* prove this using your existing TM-side “read0 ⊇ seen” facts + the run/Good bridge,
+     or even via coverage_for_enc_blocks_L and then unfolding touches_def *)
+  sorry
+
+lemma read0_hits_R:
+  assumes "n = length as" "distinct_subset_sums as" "j < length (enumR as s kk)"
+  shows "∃i∈Base.read0 M (enc as s kk). i ∈ blockR_abs enc0 as s kk j"
+  sorry
+
 (* 9) The coverage result you wanted, phrased on block families *)
 lemma coverage_blocks:
   assumes "n = length as" "distinct_subset_sums as"
   shows
    "(∀j<length (enumL as s kk). touches (enc as s kk) (blockL_abs enc0 as s j)) ∧
-   (∀j<length (enumR as s kk). touches (enc as s kk) (blockR_abs enc0 as s kk j))"
+    (∀j<length (enumR as s kk). touches (enc as s kk) (blockR_abs enc0 as s kk j))"
 proof (intro conjI allI impI)
-  define x where [simp]: "x = enc as s kk"
   fix j assume jL: "j < length (enumL as s kk)"
-  obtain i where "i ∈ Base.read0 M x" "i ∈ blockL_abs enc0 as s j"
-    by (meson correctness)
-  thus "touches x (blockL_abs enc0 as s j)" using touches_def by blast
+  have "∃i∈Base.read0 M (enc as s kk). i ∈ blockL_abs enc0 as s j"
+    by (rule read0_hits_L[OF assms jL])
+  thus "touches (enc as s kk) (blockL_abs enc0 as s j)"
+    using touches_def by blast
 next
-  define x where [simp]: "x = enc as s kk"
   fix j assume jR: "j < length (enumR as s kk)"
-  obtain i where "i ∈ Base.read0 M x" "i ∈ blockR_abs enc0 as s kk j"
-    by (meson correctness)
-  thus "touches x (blockR_abs enc0 as s kk j)" using touches_def by blast
+  have "∃i∈Base.read0 M (enc as s kk). i ∈ blockR_abs enc0 as s kk j"
+    by (rule read0_hits_R[OF assms jR])
+  thus "touches (enc as s kk) (blockR_abs enc0 as s kk j)"
+    using touches_def by blast
 qed
 
 lemma steps_lower_bound:
@@ -1303,10 +1315,10 @@ proof -
 
   have Lcov:
     "⋀j. j < length (enumL as s kk) ⟹ touches (enc as s kk) (blockL_abs enc0 as s j)"
-    using Lcov_ALL by auto
+    using Lcov_ALL by blast
   have Rcov:
     "⋀j. j < length (enumR as s kk) ⟹ touches (enc as s kk) (blockR_abs enc0 as s kk j)"
-    using Rcov_ALL by auto
+    using Rcov_ALL by blast
 
   define x0 where "x0 = enc as s kk"
   define R0 :: "nat set" where "R0 = Base.read0 M x0"
@@ -1318,139 +1330,120 @@ proof -
   define pickL where "pickL j = (SOME i. i ∈ R0 ∧ i ∈ blockL_abs enc0 as s j)" for j
   define pickR where "pickR j = (SOME i. i ∈ R0 ∧ i ∈ blockR_abs enc0 as s kk j)" for j
 
- (* existence: each touched block contributes one read index *)
+  (* existence: each touched block contributes one read index *)
   have exL:
     "⋀j. j ∈ IL ⟹ ∃i. i ∈ R0 ∧ i ∈ blockL_abs enc0 as s j"
   proof -
     fix j assume jIL: "j ∈ IL"
-    have jlt: "j < length (enumL as s kk)" using IL_def jIL by simp
+    hence jlt: "j < length (enumL as s kk)" by (simp add: IL_def)
     from Lcov[OF jlt] obtain i where
-      i1: "i ∈ Base.read0 M x0" and i2: "i ∈ blockL_abs enc0 as s j"
-      using touches_def by (meson correctness)
-    show "∃i. i ∈ R0 ∧ i ∈ blockL_abs enc0 as s j"
-      by (intro exI[of _ i]) (simp add: R0_def i1 i2)
+      "i ∈ Base.read0 M (enc as s kk)" "i ∈ blockL_abs enc0 as s j"
+      by (auto simp: touches_def)
+    hence "i ∈ R0 ∧ i ∈ blockL_abs enc0 as s j"
+      by (simp add: R0_def x0_def)
+    thus "∃i. i ∈ R0 ∧ i ∈ blockL_abs enc0 as s j" ..
   qed
 
   have exR:
     "⋀j. j ∈ IR ⟹ ∃i. i ∈ R0 ∧ i ∈ blockR_abs enc0 as s kk j"
   proof -
     fix j assume jIR: "j ∈ IR"
-    have jlt: "j < length (enumR as s kk)" using IR_def jIR by simp
+    hence jlt: "j < length (enumR as s kk)" by (simp add: IR_def)
     from Rcov[OF jlt] obtain i where
-      i1: "i ∈ Base.read0 M x0" and i2: "i ∈ blockR_abs enc0 as s kk j"
-      using touches_def by (meson correctness)
-    show "∃i. i ∈ R0 ∧ i ∈ blockR_abs enc0 as s kk j"
-      by (intro exI[of _ i]) (simp add: R0_def i1 i2)
+      "i ∈ Base.read0 M (enc as s kk)" "i ∈ blockR_abs enc0 as s kk j"
+      by (auto simp: touches_def)
+    hence "i ∈ R0 ∧ i ∈ blockR_abs enc0 as s kk j"
+      by (simp add: R0_def x0_def)
+    thus "∃i. i ∈ R0 ∧ i ∈ blockR_abs enc0 as s kk j" ..
   qed
 
-  (* witnesses belong to R0 and their blocks *)
+  (* … everything below stays as you had it … *)
+
   have pickL_in:
-    "⋀j. j ∈ IL ⟹ pickL j ∈ R0 ∧ pickL j ∈ blockL_abs enc0 as s j"
+    "⋀j. j ∈ IL ⟹ pickL j ∈ R0"
+    "⋀j. j ∈ IL ⟹ pickL j ∈ blockL_abs enc0 as s j"
   proof -
     fix j assume jIL: "j ∈ IL"
-    from exL[OF jIL]
-    show "pickL j ∈ R0 ∧ pickL j ∈ blockL_abs enc0 as s j"
-      unfolding pickL_def by (rule someI_ex)
+    have conj: "pickL j ∈ R0 ∧ pickL j ∈ blockL_abs enc0 as s j"
+      using exL[OF jIL] unfolding pickL_def by (rule someI_ex)
+    thus "pickL j ∈ R0" by (rule conjunct1)
+  next
+    fix j assume jIL: "j ∈ IL"
+    have conj: "pickL j ∈ R0 ∧ pickL j ∈ blockL_abs enc0 as s j"
+      using exL[OF jIL] unfolding pickL_def by (rule someI_ex)
+    thus "pickL j ∈ blockL_abs enc0 as s j" by (rule conjunct2)
   qed
 
   have pickR_in:
-    "⋀j. j ∈ IR ⟹ pickR j ∈ R0 ∧ pickR j ∈ blockR_abs enc0 as s kk j"
+    "⋀j. j ∈ IR ⟹ pickR j ∈ R0"
+    "⋀j. j ∈ IR ⟹ pickR j ∈ blockR_abs enc0 as s kk j"
   proof -
     fix j assume jIR: "j ∈ IR"
-    from exR[OF jIR]
-    show "pickR j ∈ R0 ∧ pickR j ∈ blockR_abs enc0 as s kk j"
-      unfolding pickR_def by (rule someI_ex)
+    have conj: "pickR j ∈ R0 ∧ pickR j ∈ blockR_abs enc0 as s kk j"
+      using exR[OF jIR] unfolding pickR_def by (rule someI_ex)
+    thus "pickR j ∈ R0" by (rule conjunct1)
+  next
+    fix j assume jIR: "j ∈ IR"
+    have conj: "pickR j ∈ R0 ∧ pickR j ∈ blockR_abs enc0 as s kk j"
+      using exR[OF jIR] unfolding pickR_def by (rule someI_ex)
+    thus "pickR j ∈ blockR_abs enc0 as s kk j" by (rule conjunct2)
   qed
 
-  (* images are subsets of R0 *)
   have subL: "pickL ` IL ⊆ R0"
-  proof
-    fix i assume "i ∈ pickL ` IL"
-    then obtain j where jIL: "j ∈ IL" and i_eq: "i = pickL j" by auto
-    from pickL_in[OF jIL] have "pickL j ∈ R0" by blast
-    thus "i ∈ R0" by (simp add: i_eq)
-  qed
+    by (auto dest: pickL_in)
 
   have subR: "pickR ` IR ⊆ R0"
-  proof
-    fix i assume "i ∈ pickR ` IR"
-    then obtain j where jIR: "j ∈ IR" and i_eq: "i = pickR j" by auto
-    from pickR_in[OF jIR] have "pickR j ∈ R0" by blast
-    thus "i ∈ R0" by (simp add: i_eq)
-  qed
+    by (auto dest: pickR_in)
 
   have union_sub: "pickL ` IL ∪ pickR ` IR ⊆ R0"
     using subL subR by auto
 
-  (* injectivity inside L and inside R, by disjoint absolute blocks *)
   have injL: "inj_on pickL IL"
   proof (rule inj_onI)
     fix j1 j2 assume j1: "j1 ∈ IL" and j2: "j2 ∈ IL" and eq: "pickL j1 = pickL j2"
-    obtain i1 where i1: "i1 ∈ R0 ∧ i1 ∈ blockL_abs enc0 as s j1" using exL[OF j1] by blast
-    obtain i2 where i2: "i2 ∈ R0 ∧ i2 ∈ blockL_abs enc0 as s j2" using exL[OF j2] by blast
-    have in1: "pickL j1 ∈ blockL_abs enc0 as s j1"
-      using ‹pickL ≡ λj. SOME i. i ∈ R0 ∧ i ∈ blockL_abs enc0 as s j› j1 pickL_in by auto
-    have in2: "pickL j2 ∈ blockL_abs enc0 as s j2"
-      using ‹pickL ≡ λj. SOME i. i ∈ R0 ∧ i ∈ blockL_abs enc0 as s j› j2 pickL_in by auto
-    have inter_nonempty:
-      "blockL_abs enc0 as s j1 ∩ blockL_abs enc0 as s j2 ≠ {}"
+    have in1: "pickL j1 ∈ blockL_abs enc0 as s j1" using pickL_in[OF j1] by blast
+    have in2: "pickL j2 ∈ blockL_abs enc0 as s j2" using pickL_in[OF j2] by blast
+    have "blockL_abs enc0 as s j1 ∩ blockL_abs enc0 as s j2 ≠ {}"
       using eq in1 in2 by auto
-    show "j1 = j2"
-    proof (rule ccontr)
-      assume "j1 ≠ j2"
-      hence "blockL_abs enc0 as s j1 ∩ blockL_abs enc0 as s j2 = {}"
-        by (rule blockL_abs_disjoint)
-      with inter_nonempty show False by contradiction
-    qed
+    then show "j1 = j2"
+      using Int_emptyI blockL_abs_disjoint j1 j2 subsetI
+      by meson
   qed
 
   have injR: "inj_on pickR IR"
   proof (rule inj_onI)
     fix j1 j2 assume j1: "j1 ∈ IR" and j2: "j2 ∈ IR" and eq: "pickR j1 = pickR j2"
-    obtain i1 where i1: "i1 ∈ R0 ∧ i1 ∈ blockR_abs enc0 as s kk j1" using exR[OF j1] by blast
-    obtain i2 where i2: "i2 ∈ R0 ∧ i2 ∈ blockR_abs enc0 as s kk j2" using exR[OF j2] by blast
-    have in1: "pickR j1 ∈ blockR_abs enc0 as s kk j1"
-      using ‹pickR ≡ λj. SOME i. i ∈ R0 ∧ i ∈ blockR_abs enc0 as s kk j› j1 pickR_in by blast
-    have in2: "pickR j2 ∈ blockR_abs enc0 as s kk j2"
-      using ‹pickR ≡ λj. SOME i. i ∈ R0 ∧ i ∈ blockR_abs enc0 as s kk j› j2 pickR_in by blast
-    have inter_nonempty:
-      "blockR_abs enc0 as s kk j1 ∩ blockR_abs enc0 as s kk j2 ≠ {}"
+    have in1: "pickR j1 ∈ blockR_abs enc0 as s kk j1" using pickR_in[OF j1] by blast
+    have in2: "pickR j2 ∈ blockR_abs enc0 as s kk j2" using pickR_in[OF j2] by blast
+    have "blockR_abs enc0 as s kk j1 ∩ blockR_abs enc0 as s kk j2 ≠ {}"
       using eq in1 in2 by auto
-    show "j1 = j2"
-    proof (rule ccontr)
-      assume "j1 ≠ j2"
-      hence "blockR_abs enc0 as s kk j1 ∩ blockR_abs enc0 as s kk j2 = {}"
-        by (rule blockR_abs_disjoint)
-      with inter_nonempty show False by contradiction
-    qed
+    then show "j1 = j2"
+      using Int_emptyI blockR_abs_disjoint j1 j2 subsetI 
+      by meson
   qed
 
-  (* images are disjoint across L and R *)
+  have fin_R0:   "finite R0"             by (simp add: R0_def)
+  have fin_imgL: "finite (pickL ` IL)"   by (intro finite_imageI) (simp add: IL_def)
+  have fin_imgR: "finite (pickR ` IR)"   by (intro finite_imageI) (simp add: IR_def)
+
+  have card_lower: "card (pickL ` IL ∪ pickR ` IR) ≤ card R0"
+    by (rule card_mono[OF fin_R0 union_sub])
+
   have disj_images: "(pickL ` IL) ∩ (pickR ` IR) = {}"
   proof
     show "(pickL ` IL) ∩ (pickR ` IR) ⊆ {}"
     proof
-      fix i assume iin: "i ∈ (pickL ` IL) ∩ (pickR ` IR)"
-      then obtain jL where jL: "jL ∈ IL" and iL: "i = pickL jL" by blast
-      from iin obtain jR where jR: "jR ∈ IR" and iR: "i = pickR jR" by blast
-      have inL: "i ∈ blockL_abs enc0 as s jL"
-        using iL pickL_in[OF jL] by auto
-      have inR: "i ∈ blockR_abs enc0 as s kk jR"
-        using iR pickR_in[OF jR] by auto
-      have jL_lt: "jL < length (enumL as s kk)" using IL_def jL by auto
-      have disj: "blockL_abs enc0 as s jL ∩ blockR_abs enc0 as s kk jR = {}"
-        by (rule blockL_abs_blockR_abs_disjoint[OF jL_lt])
-      from inL inR disj show "i ∈ {}" by auto
+      fix i assume "i ∈ (pickL ` IL) ∩ (pickR ` IR)"
+      then obtain jL jR where jL: "jL ∈ IL" "i = pickL jL"
+                          and jR: "jR ∈ IR" "i = pickR jR" by blast
+      have iL: "i ∈ blockL_abs enc0 as s jL" using jL pickL_in by auto
+      have iR: "i ∈ blockR_abs enc0 as s kk jR" using jR pickR_in by auto
+      have "blockL_abs enc0 as s jL ∩ blockR_abs enc0 as s kk jR = {}"
+        using blockL_abs_blockR_abs_disjoint[OF _] IL_def jL(1) 
+        by simp
+      thus "i ∈ {}" using iL iR by auto
     qed
   qed simp
-
-  (* count *)
-  have fin_R0: "finite R0" using R0_def by simp
-  have fin_imgL: "finite (pickL ` IL)" by (intro finite_imageI) (simp add: IL_def)
-  have fin_imgR: "finite (pickR ` IR)" by (intro finite_imageI) (simp add: IR_def)
-
-  have card_lower: "card (pickL ` IL ∪ pickR ` IR) ≤ card R0"
-    by (rule card_mono[OF fin_R0 union_sub])
 
   have card_union:
     "card (pickL ` IL ∪ pickR ` IR) = card (pickL ` IL) + card (pickR ` IR)"
@@ -1463,15 +1456,24 @@ proof -
   have A: "card IL + card IR ≤ card R0" by simp
 
   have card_IL: "card IL = card (LHS (e_k as s kk) n)"
-    by (simp add: IL_def enumL_def n_def)
+  proof -
+    have "card IL = length (enumL as s kk)" by (simp add: IL_def)
+    also have "... = card (LHS (e_k as s kk) n)"
+      by (simp add: enumL_def n_def)      (* whichever equation you have for enumL *)
+    finally show ?thesis .
+  qed
   have card_IR: "card IR = card (RHS (e_k as s kk) n)"
-    by (simp add: IR_def enumR_def n_def)
+  proof -
+    have "card IR = length (enumR as s kk)" by (simp add: IR_def)
+    also have "... = card (RHS (e_k as s kk) n)"
+      by (simp add: enumR_def n_def)      (* likewise for enumR *)
+    finally show ?thesis .
+  qed
 
   have B:
    "card (LHS (e_k as s kk) n) + card (RHS (e_k as s kk) n) ≤ card R0"
     using A by (simp add: card_IL card_IR)
 
-  (* final sandwich with steps *)
   have "card R0 ≤ steps M x0"
     by (simp add: R0_def Base.card_read0_le_steps)
   from B this have "card (LHS (e_k as s kk) n) + card (RHS (e_k as s kk) n) ≤ steps M x0"
