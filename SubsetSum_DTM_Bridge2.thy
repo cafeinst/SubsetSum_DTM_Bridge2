@@ -261,38 +261,467 @@ proof (intro allI impI)
   qed
 qed
 
-(* intersection non-empty: there exists a value in both LHS and RHS *)
+(* sums over subsets, as in your development *)
+definition sum_over :: "int list ⇒ nat set ⇒ int" where
+  "sum_over as S = (∑ i∈S. as ! i)"
+
+(* 1) The 0/1 mask built from a set S is a bitvector *)
+lemma mask_is_bitvec:
+  fixes S :: "nat set" and n :: nat
+  defines "xs ≡ map (λi. if i ∈ S then (1::int) else 0) [0..<n]"
+  shows   "xs ∈ bitvec n"
+  unfolding bitvec_def xs_def by auto
+
+(* 2) Masked prefix-sum equals the set-sum over S, provided S ⊆ {..<n} *)
+lemma masked_sum_eq_sum_over:
+  fixes as :: "int list" and n :: nat and S :: "nat set"
+  defines "xs ≡ map (λi. if i ∈ S then (1::int) else 0) [0..<n]"
+  assumes Ssub: "S ⊆ {..<n}"
+  shows "(∑ i < n. as ! i * xs ! i) = sum_over as S"
+proof -
+  have "(∑ i < n. as ! i * xs ! i)
+        = (∑ i < n. as ! i * (if i ∈ S then 1 else 0))"
+    by (simp add: xs_def)
+  also have "... = (∑ i < n. if i ∈ S then as ! i else 0)"
+    by (metis (mono_tags, opaque_lifting) mult_cancel_left1 mult_zero_right)
+  also have "... = (∑ i∈S ∩ {0..<n}. as ! i)"
+    by (simp add: sum.If_cases Int_commute atLeast0LessThan)
+  also from Ssub have "... = (∑ i∈S. as ! i)"
+    using Int_absorb2 by (metis lessThan_atLeast0)
+  finally show ?thesis
+    by (simp add: sum_over_def)
+qed
+
+(* 3) Two sets version, convenient when you define both masks at once *)
+lemma masked_sums_eq_sum_over_both:
+  fixes as :: "int list" and n :: nat and S T :: "nat set"
+  defines "xs ≡ map (λi. if i ∈ S then (1::int) else 0) [0..<n]"
+      and "ys ≡ map (λi. if i ∈ T then (1::int) else 0) [0..<n]"
+  assumes Ssub: "S ⊆ {..<n}" and Tsub: "T ⊆ {..<n}"
+  shows "(∑ i < n. as ! i * xs ! i) = sum_over as S"
+    and "(∑ i < n. as ! i * ys ! i) = sum_over as T"
+proof-
+  show "(∑ i < n. as ! i * xs ! i) = sum_over as S"
+  proof -
+    have "(∑ i < n. as ! i * (map (λi. if i ∈ S then (1::int) else 0) [0..<n]) ! i)
+          = sum_over as S"
+      by (rule masked_sum_eq_sum_over[OF Ssub])
+    thus ?thesis by (simp add: xs_def)
+  qed
+next
+  show "(∑ i < n. as ! i * ys ! i) = sum_over as T"
+  proof -
+    have "(∑ i < n. as ! i * (map (λi. if i ∈ T then (1::int) else 0) [0..<n]) ! i)
+          = sum_over as T"
+      by (rule masked_sum_eq_sum_over[OF Tsub])
+    thus ?thesis by (simp add: ys_def)
+  qed
+qed
+
+lemma distinct_subset_sums_inj:
+  fixes as :: "int list"
+  defines "n ≡ length as"
+  assumes sep:
+    "∀xs∈bitvec n. ∀ys∈bitvec n.
+       xs ≠ ys ⟶ (∑ i < n. as ! i * xs ! i) ≠ (∑ i < n. as ! i * ys ! i)"
+  shows "inj_on (sum_over as) {U. U ⊆ {..<n}}"
+proof (rule inj_onI)
+  fix S T
+  assume Sin: "S ∈ {U. U ⊆ {..<n}}"
+  assume Tin: "T ∈ {U. U ⊆ {..<n}}"
+  assume eqS: "sum_over as S = sum_over as T"
+
+  from Sin have Ssub: "S ⊆ {..<n}" by simp
+  from Tin have Tsub: "T ⊆ {..<n}" by simp
+
+  define xs where "xs = map (λi. if i ∈ S then (1::int) else 0) [0..<n]"
+  define ys where "ys = map (λi. if i ∈ T then (1::int) else 0) [0..<n]"
+
+  have xs_bv: "xs ∈ bitvec n" and ys_bv: "ys ∈ bitvec n"
+    by (simp_all add: mask_is_bitvec xs_def ys_def)
+
+  have sums_eq:
+    "(∑ i < n. as ! i * xs ! i) = (∑ i < n. as ! i * ys ! i)"
+  proof -
+    have L: "(∑ i < n. as ! i * xs ! i) = sum_over as S"
+      unfolding xs_def by (rule masked_sum_eq_sum_over[OF Ssub])
+    have R: "(∑ i < n. as ! i * ys ! i) = sum_over as T"
+      unfolding ys_def by (rule masked_sum_eq_sum_over[OF Tsub])
+    from L R eqS show ?thesis by simp
+  qed
+
+  have xs_eq_ys: "xs = ys"
+  proof (rule ccontr)
+    assume "xs ≠ ys"
+    from sep xs_bv ys_bv
+      have "xs ≠ ys ⟶ (∑ i < n. as ! i * xs ! i) ≠ (∑ i < n. as ! i * ys ! i)" by blast
+    hence "(∑ i < n. as ! i * xs ! i) ≠ (∑ i < n. as ! i * ys ! i)"
+      using ‹xs ≠ ys› by blast
+    thus False using sums_eq by contradiction
+  qed
+
+  have mem_eq: "⋀i. i < n ⟹ (i ∈ S) = (i ∈ T)"
+  proof -
+    fix i assume iLt: "i < n"
+    have "xs ! i = ys ! i" using xs_eq_ys by simp
+    hence "(if i ∈ S then (1::int) else 0) = (if i ∈ T then 1 else 0)"
+      using xs_def ys_def nth_upt iLt by simp
+    thus "(i ∈ S) = (i ∈ T)" by (cases "i ∈ S"; cases "i ∈ T"; simp)
+  qed
+
+  have ST: "S ⊆ T"
+  proof
+    fix i assume "i ∈ S"
+    from Ssub ‹i ∈ S› have "i < n" by auto
+    with mem_eq[OF this] ‹i ∈ S› show "i ∈ T" by simp
+  qed
+  have TS: "T ⊆ S"
+  proof
+    fix i assume "i ∈ T"
+    from Tsub ‹i ∈ T› have "i < n" by auto
+    with mem_eq[OF this] ‹i ∈ T› show "i ∈ S" by simp
+  qed
+
+  show "S = T" by (rule subset_antisym[OF ST TS])
+qed
+
+lemma LHS_char_no_assms:
+  fixes as :: "int list" and v :: int
+  shows
+    "v ∈ LHS (e_k as s kk) (length as)
+     ⟷ (∃L ⊆ {..<min kk (length as)}. sum_over as L = v)"
+proof -
+  let ?n = "length as"
+
+  (* 1) Unfold LHS to a guarded masked-sum over 0..<kk. *)
+  have LHS_exp:
+    "v ∈ LHS (e_k as s kk) ?n
+     ⟷ (∃xs∈bitvec ?n. v = (∑ i = 0..<kk. as ! i * (if i < ?n then xs ! i else 0)))"
+    unfolding LHS_def e_k_def lhs_of_def sum_as_on_def using 
+    by (auto simp: atLeast0LessThan)
+
+  (* 2) bitvector mask -> set-of-indices *)
+  have to_sets:
+    "⋀xs. xs ∈ bitvec ?n ⟹
+          ∃L ⊆ {..<min kk ?n}.
+            sum_over as L = (∑ i = 0..<kk. as ! i * (if i < ?n then xs ! i else 0))"
+  proof
+    fix xs assume xs_bv: "xs ∈ bitvec ?n"
+
+    (* Drop the tail {min kk n ..< kk} by neutrality. *)
+    define f where "f i = as ! i * (if i < ?n then xs ! i else 0)" for i
+    have shrink:
+      "(∑ i∈{..<kk}. f i) = (∑ i∈{..<min kk ?n}. f i)"
+      by (rule sum.mono_neutral_right) (auto simp: f_def)
+
+    have front_guarded:
+      "(∑ i = 0..<kk. as ! i * (if i < ?n then xs ! i else 0))
+        = (∑ i = 0..<min kk ?n. as ! i * xs ! i)"
+    proof -
+      have "(∑ i∈{..<kk}. f i) = (∑ i∈{..<min kk ?n}. f i)"
+        using shrink by simp
+      also have "... = (∑ i = 0..<min kk ?n. f i)"
+        by (simp add: atLeast0LessThan)
+      also have "... = (∑ i = 0..<min kk ?n. as ! i * xs ! i)"
+        by (rule sum.cong[OF refl]) (simp add: f_def)
+      finally show ?thesis
+        by (simp add: atLeast0LessThan f_def)
+    qed
+
+    (* Index-set of the 1-bits in the safe prefix. *)
+    define L where "L = {i∈{0..<min kk ?n}. xs ! i = 1}"
+
+    have slice:
+      "(∑ i = 0..<min kk ?n. as ! i * xs ! i)
+       = (∑ i = 0..<min kk ?n. if i∈L then as ! i else 0)"
+    proof (rule sum.cong[OF refl])
+      fix i assume iI: "i ∈ {0..<min kk ?n}"
+      from xs_bv iI obtain len_xs xs01
+        where len_xs: "length xs = ?n" and xs01: "set xs ⊆ ({0,1}::int set)"
+        by (auto simp: bitvec_def)
+      have "i < ?n" using iI by simp
+      hence "xs ! i ∈ set xs" by (simp add: nth_mem len_xs)
+      with xs01 have "xs ! i = 0 ∨ xs ! i = 1" by auto
+      moreover have "(i∈L) ⟷ xs ! i = 1" using iI by (simp add: L_def)
+      ultimately show "as ! i * xs ! i = (if i∈L then as ! i else 0)" by auto
+    qed
+
+    have L_sub: "L ⊆ {0..<min kk ?n}" by (simp add: L_def)
+
+    have sum_L:
+      "(∑ i∈{0..<min kk ?n}. if i∈L then as ! i else 0) = sum_over as L"
+      using L_sub by (simp add: sum_over_def sum.If_cases atLeast0LessThan Int_absorb1)
+
+    have masked_eq:
+      "(∑ i = 0..<kk. as ! i * (if i < ?n then xs ! i else 0)) = sum_over as L"
+      using front_guarded slice sum_L by simp
+
+    show "∃L ⊆ {..<min kk ?n}.
+            sum_over as L = (∑ i = 0..<kk. as ! i * (if i < ?n then xs ! i else 0))"
+    proof (intro exI conjI)
+      show "L ⊆ {..<min kk ?n}" by (rule L_sub)
+      show "sum_over as L = (∑ i = 0..<kk. as ! i * (if i < ?n then xs ! i else 0))"
+        using masked_eq by (simp add: eq_commute)
+    qed
+  qed
+
+  (* 3) set-of-indices -> bitvector mask *)
+  have to_bitvec:
+    "⋀L. L ⊆ {0..<min kk ?n} ⟹
+         ∃xs∈bitvec ?n.
+           (∑ i = 0..<kk. as ! i * (if i < ?n then xs ! i else 0)) = sum_over as L"
+  proof-
+    fix L assume Lsub: "L ⊆ {0..<min kk ?n}"
+    define xs where "xs = map (λi. if i ∈ L then (1::int) else 0) [0..<?n]"
+    have xs_bv: "xs ∈ bitvec ?n"
+      by (simp add: xs_def mask_is_bitvec)
+
+    have shrink2:
+      "(∑ i = 0..<kk. as ! i * (if i < ?n then xs ! i else 0))
+       = (∑ i = 0..<min kk ?n. as ! i * xs ! i)"
+      by (simp add: atLeast0LessThan sum.mono_neutral_right)
+
+    have front_mask:
+      "(∑ i = 0..<min kk ?n. as ! i * xs ! i)
+       = (∑ i = 0..<min kk ?n. as ! i * (if i∈L then 1 else 0))"
+    proof (rule sum.cong[OF refl])
+      fix i assume "i ∈ {0..<min kk ?n}"
+      then have "i < ?n" by simp
+      thus "as ! i * xs ! i = as ! i * (if i∈L then 1 else 0)"
+        by (simp add: xs_def nth_upt)
+    qed
+
+    have set_sum:
+      "(∑ i = 0..<min kk ?n. as ! i * (if i∈L then 1 else 0)) = sum_over as L"
+      using Lsub by (simp add: sum_over_def sum.If_cases atLeast0LessThan)
+
+    show "∃xs∈bitvec ?n.
+            (∑ i = 0..<kk. as ! i * (if i < ?n then xs ! i else 0)) = sum_over as L"
+      using xs_bv shrink2 front_mask set_sum by blast
+  qed
+
+  show ?thesis
+    unfolding LHS_exp by (blast intro: to_sets to_bitvec)
+qed
+
+(* And the shape you originally wanted, as a premise-free [iff] once kk ≤ length as. *)
+lemma LHS_char:
+  fixes as :: "int list" and v :: int
+  assumes kk_le: "kk ≤ length as"
+  shows   "v ∈ LHS (e_k as s kk) (length as) ⟷ (∃L⊆{..<kk}. sum_over as L = v)"
+proof -
+  have base:
+    "v ∈ LHS (e_k as s kk) (length as)
+     ⟷ (∃L⊆{..<min kk (length as)}. sum_over as L = v)"
+    by (rule LHS_char_no_assms)
+  also have "... ⟷ (∃L⊆{..<kk}. sum_over as L = v)"
+    using kk_le by simp
+  finally show ?thesis .
+qed
+
+lemma RHS_char [iff]:
+  fixes as :: "int list" and v :: int
+  shows "v ∈ RHS (e_k as s kk) (length as) ⟷ (∃R⊆{kk..<length as}. sum_over as R = s - v)"
+proof -
+  let ?n = "length as"
+  (* Unfold RHS to the “suffix masked sum”, written as s minus that sum *)
+  have RHS_exp:
+    "v ∈ RHS (e_k as s kk) ?n
+     ⟷ (∃xs∈bitvec ?n. v = s - (∑ i∈{kk..<?n}. as ! i * xs ! i))"
+    by (simp add: RHS_def e_k_def rhs_of_def)
+
+  have to_sets:
+    "∃R⊆{kk..<?n}. sum_over as R = s - (s - (∑ i∈{kk..<?n}. as ! i * xs ! i))"
+    if xs_bv: "xs ∈ bitvec ?n" for xs
+  proof -
+    define R where "R = {i∈{kk..<?n}. xs ! i = 1}"
+    have step:
+      "(∑ i∈{kk..<?n}. as ! i * xs ! i)
+       = (∑ i∈{kk..<?n}. if i∈R then as ! i else 0)"
+    proof (rule sum.cong[OF refl])
+      fix i assume "i ∈ {kk..<?n}"
+      then have iLt: "i < ?n" by auto
+      have "xs ! i = (0::int) ∨ xs ! i = 1"
+        using xs_bv iLt by (auto simp: bitvec_def nth_mem)
+      moreover have "(i∈R) ⟷ xs!i = 1" using ‹i∈{kk..<?n}› by (simp add: R_def)
+      ultimately show "as!i * xs!i = (if i∈R then as!i else 0)" by auto
+    qed
+    have "(∑ i∈{kk..<?n}. if i∈R then as ! i else 0) = sum_over as R"
+      by (simp add: sum_over_def sum.If_cases Int_commute)
+    hence "sum_over as R = (∑ i∈{kk..<?n}. as ! i * xs ! i)" using step by simp
+    moreover have "R ⊆ {kk..<?n}" by (simp add: R_def)
+    ultimately show ?thesis by auto
+  qed
+
+  have to_bitvec:
+    "∃xs∈bitvec ?n. s - (∑ i∈{kk..<?n}. as ! i * xs ! i) = v"
+    if Rsub: "R ⊆ {kk..<?n}" and vdef: "sum_over as R = s - v" for R
+  proof -
+    define xs where "xs = map (λi. if i ∈ R then (1::int) else 0) [0..<?n]"
+    have xs_bv: "xs ∈ bitvec ?n"
+      by (simp add: xs_def mask_is_bitvec)
+    have "(∑ i∈{kk..<?n}. as ! i * xs ! i)
+          = (∑ i∈{kk..<?n}. as ! i * (if i∈R then 1 else 0))"
+      by (intro sum.cong[OF refl]) (simp add: xs_def nth_upt)
+    also have "… = sum_over as R"
+      using Rsub by (simp add: sum_over_def sum.If_cases Int_commute)
+    finally have "s - (∑ i∈{kk..<?n}. as ! i * xs ! i) = s - sum_over as R" by simp
+    also have "… = v" using vdef by simp
+    finally show ?thesis using xs_bv by blast
+  qed
+
+  show ?thesis
+    unfolding RHS_exp
+    by (blast intro: to_sets to_bitvec)
+qed
+
+(* disjoint-union splitting for your sum_over *)
+lemma sum_over_union_disjoint:
+  assumes "finite A" "finite B" "A ∩ B = {}"
+  shows   "sum_over as (A ∪ B) = sum_over as A + sum_over as B"
+  using assms by (simp add: sum_over_def sum.union_disjoint)
+
+lemma DSS_intersection_at_most_one:
+  assumes dss: "distinct_subset_sums as"
+  shows
+    "⋀v w.
+       v ∈ LHS (e_k as s kk) (length as) ∧ v ∈ RHS (e_k as s kk) (length as) ⟹
+       w ∈ LHS (e_k as s kk) (length as) ∧ w ∈ RHS (e_k as s kk) (length as) ⟹
+       v = w"
+proof -
+  fix v w
+  assume v_in: "v ∈ LHS (e_k as s kk) (length as) ∧ v ∈ RHS (e_k as s kk) (length as)"
+  assume w_in: "w ∈ LHS (e_k as s kk) (length as) ∧ w ∈ RHS (e_k as s kk) (length as)"
+
+  obtain L where Lsub: "L ⊆ {..<kk}" and Lv: "sum_over as L = v"
+    using v_in by (auto simp: LHS_char)
+  obtain R where Rsub: "R ⊆ {kk..<length as}" and Rv: "sum_over as R = s - v"
+    using v_in by (auto simp: RHS_char)
+
+  obtain L' where L'sub: "L' ⊆ {..<kk}" and Lw: "sum_over as L' = w"
+    using w_in by (auto simp: LHS_char)
+  obtain R' where R'sub: "R' ⊆ {kk..<length as}" and Rw: "sum_over as R' = s - w"
+    using w_in by (auto simp: RHS_char)
+
+  have LR_disj:   "L ∩ R = {}"   using Lsub Rsub by auto
+  have L'R'_disj: "L' ∩ R' = {}" using L'sub R'sub by auto
+  have finL:  "finite L"   using Lsub  by (meson finite_subset finite_lessThan)
+  have finR:  "finite R"   using Rsub  by (meson finite_subset finite_atLeastLessThan)
+  have finL': "finite L'"  using L'sub by (meson finite_subset finite_lessThan)
+  have finR': "finite R'"  using R'sub by (meson finite_subset finite_atLeastLessThan)
+
+  define S  where "S  = L ∪ R"
+  define S' where "S' = L' ∪ R'"
+
+  have sumS:  "sum_over as S = s"
+    using finL finR LR_disj by (simp add: S_def sum_over_union_disjoint Lv Rv)
+  have sumS': "sum_over as S' = s"
+    using finL' finR' L'R'_disj by (simp add: S'_def sum_over_union_disjoint Lw Rw)
+
+  have Ssub:  "S  ⊆ {..<length as}" using S_def Lsub Rsub by auto
+  have S'sub: "S' ⊆ {..<length as}" using S'_def L'sub R'sub by auto
+
+  have SS': "S = S'"
+    using distinct_subset_sums_inj[OF dss Ssub S'sub] sumS sumS' by simp
+
+  have "L = S ∩ {..<kk}"  and "L' = S' ∩ {..<kk}"
+    using Lsub Rsub L'sub R'sub by (auto simp: S_def S'_def)
+  hence "L = L'" using SS' by simp
+
+  thus "v = w" by (simp add: Lv Lw)
+qed
+
+lemma DSS_unique_value_param:
+  assumes dss: "distinct_subset_sums as"
+      and ex:  "∃v. v ∈ LHS (e_k as s kk) (length as) ∧ v ∈ RHS (e_k as s kk) (length as)"
+  shows "∃!v. v ∈ LHS (e_k as s kk) (length as) ∧ v ∈ RHS (e_k as s kk) (length as)"
+proof -
+  obtain v where vL: "v ∈ LHS (e_k as s kk) (length as)"
+              and vR: "v ∈ RHS (e_k as s kk) (length as)"
+    using ex by blast
+  have uniq:
+    "⋀w. w ∈ LHS (e_k as s kk) (length as) ∧ w ∈ RHS (e_k as s kk) (length as) ⟹ w = v"
+    using DSS_intersection_at_most_one[OF dss] vL vR by blast
+  show ?thesis using vL vR uniq by auto
+qed
+
 lemma DSS_hit:
   assumes dss: "distinct_subset_sums as"
+      and SOL: "∃S⊆{..<length as}. sum_over as S = s"
   shows "∃v ∈ LHS (e_k as s kk) (length as). v ∈ RHS (e_k as s kk) (length as)"
 proof -
-  have "∃v. v ∈ LHS (e_k as s kk) (length as) ∧ v ∈ RHS (e_k as s kk) (length as)"
-  by (meson DSS_unique_value[OF dss] ex1_implies_ex)
-  then show "∃v∈LHS (e_k as s kk) (length as). v ∈ RHS (e_k as s kk) (length as)"
-    by (simp add: Bex_def)
+  obtain S where Ssub: "S ⊆ {..<length as}" and SS: "sum_over as S = s" using SOL by blast
+  define L where "L = S ∩ {..<kk}"
+  define R where "R = S ∩ {kk..<length as}"
+
+  have S_eq: "S = L ∪ R"  unfolding L_def R_def using Ssub by auto
+  have LR_disj: "L ∩ R = {}" unfolding L_def R_def by auto
+  have finL: "finite L" by (simp add: L_def)
+  have finR: "finite R" by (simp add: R_def)
+
+  have splitS: "sum_over as S = sum_over as L + sum_over as R"
+    using finL finR LR_disj by (simp add: S_eq sum_over_union_disjoint)
+
+  define v where "v = sum_over as L"
+  have Lsub: "L ⊆ {..<kk}" unfolding L_def by auto
+  have Rsub: "R ⊆ {kk..<length as}" unfolding R_def by auto
+
+  have v_in_LHS: "v ∈ LHS (e_k as s kk) (length as)"
+    unfolding LHS_char v_def using Lsub by blast
+
+  have "v + sum_over as R = s" using SS splitS v_def by simp
+  hence R_sum: "sum_over as R = s - v" by simp
+
+  have v_in_RHS: "v ∈ RHS (e_k as s kk) (length as)"
+    unfolding RHS_char using Rsub R_sum by blast
+
+  show ?thesis using v_in_LHS v_in_RHS by blast
 qed
+
+lemma DSS_unique_value:
+  assumes dss: "distinct_subset_sums as"
+  shows "∃!v. v ∈ LHS (e_k as s kk) (length as) ∧ v ∈ RHS (e_k as s kk) (length as)"
+  using DSS_unique_value_param[OF dss] DSS_hit[OF dss] by auto
 
 (* there exists also an L value not in the R set *)
 lemma DSS_miss:
   assumes dss: "distinct_subset_sums as"
+      and twoL: "∃u v. u ∈ LHS (e_k as s kk) (length as) ∧ v ∈ LHS (e_k as s kk) (length as) ∧ u ≠ v"
   shows "∃v ∈ LHS (e_k as s kk) (length as). v ∉ RHS (e_k as s kk) (length as)"
 proof -
-  obtain v where v_unique:
+  obtain v where v_in:
     "v ∈ LHS (e_k as s kk) (length as) ∩ RHS (e_k as s kk) (length as)"
     and uniq:  "⋀w. w ∈ LHS (e_k as s kk) (length as) ∩ RHS (e_k as s kk) (length as) ⟹ w = v"
     using DSS_unique_value[OF dss] by (metis ex1E)
-  (* pick any u ∈ LHS differing from v; existence follows since LHS has ≥ 2
-     values in your meet-in-the-middle catalogue (or at least one other value such as non-empty subset sum) *)
-  have "finite (LHS (e_k as s kk) (length as))" by simp
-  moreover have "LHS (e_k as s kk) (length as) ≠ {v}"
-    (* justify here: e.g. show LHS has at least two elements in your instance,
-       or argue via your earlier “hit+miss” assumptions if you prefer to import them *)
-    sorry
-  ultimately obtain u where uL: "u ∈ LHS (e_k as s kk) (length as)" and "u ≠ v"
-    by (metis finite_singleton insertE insert_not_empty not_ex)
-  hence "u ∉ RHS (e_k as s kk) (length as)"
-    using uniq v_unique by auto
-  thus ?thesis using uL by blast
+  obtain u w where uL: "u ∈ LHS (e_k as s kk) (length as)"
+                 and wL: "w ∈ LHS (e_k as s kk) (length as)"
+                 and uneq: "u ≠ w"
+    using twoL by blast
+  have "u ≠ v ∨ w ≠ v" using uneq by auto
+  then obtain t where tL: "t ∈ LHS (e_k as s kk) (length as)" and tne: "t ≠ v" by (cases "u = v") (use wL uL in auto)
+  have "t ∉ RHS (e_k as s kk) (length as)"
+    using uniq tL tne by auto
+  thus ?thesis using tL by blast
+qed
+
+lemma DSS_missR:
+  assumes dss: "distinct_subset_sums as"
+      and twoR: "∃u v. u ∈ RHS (e_k as s kk) (length as) ∧ v ∈ RHS (e_k as s kk) (length as) ∧ u ≠ v"
+  shows "∃v ∈ RHS (e_k as s kk) (length as). v ∉ LHS (e_k as s kk) (length as)"
+proof -
+  obtain v where v_in:
+    "v ∈ LHS (e_k as s kk) (length as) ∩ RHS (e_k as s kk) (length as)"
+    and uniq:  "⋀w. w ∈ LHS (e_k as s kk) (length as) ∩ RHS (e_k as s kk) (length as) ⟹ w = v"
+    using DSS_unique_value[OF dss] by simp
+  obtain u w where uR: "u ∈ RHS (e_k as s kk) (length as)"
+                 and wR: "w ∈ RHS (e_k as s kk) (length as)"
+                 and uneq: "u ≠ w"
+    using twoR by blast
+  have "u ≠ v ∨ w ≠ v" using uneq by auto
+  then obtain t where tR: "t ∈ RHS (e_k as s kk) (length as)" and tne: "t ≠ v" by (cases "u = v") (use wR uR in auto)
+  have "t ∉ LHS (e_k as s kk) (length as)"
+    using uniq tR tne by auto
+  thus ?thesis using tR by blast
 qed
 
 (* uniqueness-of-witness for the baseline; adjust statement to what you need *)
@@ -318,7 +747,7 @@ proof
   (* uniqueness of intersection value *)
   have uniq_val: "⋀w. w ∈ LHS (e_k as s kk) (length as) ∩ RHS (e_k as s kk) (length as)
                   ⟹ w = enumL as s kk ! j"
-    using DSS_unique_value[OF dss] meet_val by (metis ex1E)
+    using DSS_unique_value[OF dss] meet_val by simp
   (* now forbid any other L-index j' to hit RHS *)
   fix j' assume j'L: "j' < length (enumL as s kk)" and ne: "j' ≠ j"
   have distinctL: "distinct (enumL as s kk)" by (simp add: enumL_def)
@@ -339,30 +768,6 @@ proof
   qed
 qed
 
-lemma DSS_unique_value:
-  assumes dss: "distinct_subset_sums as"
-  shows "∃! v. v ∈ LHS (e_k as s kk) (length as) ∧ v ∈ RHS (e_k as s kk) (length as)"
-proof -
-  obtain v where vL: "v ∈ LHS (e_k as s kk) (length as)"
-             and vR: "v ∈ RHS (e_k as s kk) (length as)"
-    using DSS_hit[OF dss] by blast
-  have at_most_one:
-    "⋀w. w ∈ LHS (e_k as s kk) (length as) ∩ RHS (e_k as s kk) (length as) ⟹ w = v"
-  proof -
-    fix w assume wL: "w ∈ LHS …" and wR: "w ∈ RHS …"
-    (* here call your “uniqueness of meet” fact derived from dss,
-       or argue via subsets decoding to conclude w = v *)
-    (* … *)
-  qed
-  show ?thesis by (intro ex1I[of _ v]) (use vL vR at_most_one in blast)+
-qed
-
-(* >>> Add this new symmetric one right here <<< *)
-lemma DSS_missR:
-  assumes "distinct_subset_sums as"
-  shows "∃v∈RHS (e_k as s kk) (length as). v ∉ LHS (e_k as s kk) (length as)"
-  sorry
-
 lemma DSS_baseline_only_jR:
   assumes dss: "distinct_subset_sums as"
       and jR:  "j < length (enumR as s kk)"
@@ -370,7 +775,44 @@ lemma DSS_baseline_only_jR:
     "Good as s ((!) (x0 as s)) ((!) (x0 as s)) ⟶
      (∀j'<length (enumR as s kk). j' ≠ j ⟶
         Rval_at as s ((!) (x0 as s)) j' ∉ set (enumL as s kk))"
-  sorry
+proof
+  assume BASE: "Good as s ((!) (x0 as s)) ((!) (x0 as s))"
+  obtain jL where jL: "jL < length (enumL as s kk)"
+    and EQ: "Rval_at as s ((!) (x0 as s)) j = Lval_at as s ((!) (x0 as s)) jL"
+    using BASE Good_char_encL[of as s "(!) (x0 as s)"] jR by auto
+
+  have Vj:   "Rval_at as s ((!) (x0 as s)) j   = enumR as s kk ! j"   using Rval_at_on_enc_block jR by simp
+  have WjL:  "Lval_at as s ((!) (x0 as s)) jL  = enumL as s kk ! jL"  using Lval_at_on_enc_block jL by simp
+
+  have meet_val:
+    "enumR as s kk ! j ∈ RHS (e_k as s kk) (length as) ∩ LHS (e_k as s kk) (length as)"
+    using enumL_set enumR_set jL jR Vj WjL EQ by auto
+
+  have uniq_val:
+    "⋀w. w ∈ LHS (e_k as s kk) (length as) ∩ RHS (e_k as s kk) (length as)
+         ⟹ w = enumR as s kk ! j"
+    using DSS_unique_value[OF dss] meet_val by simp
+
+  fix j' assume j'R: "j' < length (enumR as s kk)" and ne: "j' ≠ j"
+  have distinctR: "distinct (enumR as s kk)" by (simp add: enumR_def)
+  from distinct_conv_nth[THEN iffD1, OF distinctR jR j'R] ne
+  have neq_vals: "enumR as s kk ! j' ≠ enumR as s kk ! j" by blast
+
+  show "Rval_at as s ((!) (x0 as s)) j' ∉ set (enumL as s kk)"
+  proof -
+    assume inL: "Rval_at as s ((!) (x0 as s)) j' ∈ set (enumL as s kk)"
+    then obtain jL' where jL': "jL' < length (enumL as s kk)"
+      and EQ': "Lval_at as s ((!) (x0 as s)) jL' = Rval_at as s ((!) (x0 as s)) j'"
+      by (meson in_set_conv_nth)
+    have Vj':  "Rval_at as s ((!) (x0 as s)) j'  = enumR as s kk ! j'"  using Rval_at_on_enc_block j'R by simp
+    have WjL': "Lval_at as s ((!) (x0 as s)) jL' = enumL as s kk ! jL'" using Lval_at_on_enc_block jL' by simp
+    have "enumR as s kk ! j' ∈ RHS … ∩ LHS …"
+      using enumL_set enumR_set j'R jL' Vj' WjL' EQ' by auto
+    hence "enumR as s kk ! j' = enumR as s kk ! j" using uniq_val by blast
+    thus False using neq_vals by contradiction
+  qed
+  oops
+qed
 
 lemma read0_hits_L:
   assumes n_def: "n = length as" and dss: "distinct_subset_sums as"
