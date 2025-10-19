@@ -319,11 +319,10 @@ next
 qed
 
 lemma distinct_subset_sums_inj:
-  fixes as :: "int list"
-  defines "n ≡ length as"
+  fixes as :: "int list" and n :: nat
   assumes sep:
-    "∀xs∈bitvec n. ∀ys∈bitvec n.
-       xs ≠ ys ⟶ (∑ i < n. as ! i * xs ! i) ≠ (∑ i < n. as ! i * ys ! i)"
+    "⋀xs ys. xs ∈ bitvec n ⟹ ys ∈ bitvec n ⟹ xs ≠ ys
+             ⟹ (∑ i<n. as ! i * xs ! i) ≠ (∑ i<n. as ! i * ys ! i)"
   shows "inj_on (sum_over as) {U. U ⊆ {..<n}}"
 proof (rule inj_onI)
   fix S T
@@ -591,143 +590,106 @@ proof -
   qed
 qed
 
-(* And the shape you originally wanted, as a premise-free [iff] once kk ≤ length as. *)
 lemma LHS_char:
-  fixes as :: "int list" and v :: int
-  assumes kk_le: "kk ≤ length as"
-  shows "v ∈ LHS (e_k as s kk) (length as)
-         ⟷ (∃L ⊆ {..<kk}. sum_over as L = v)"
+  assumes "kk ≤ length as"
+  shows   "v ∈ LHS (e_k as s kk) (length as) ⟷ (∃L ⊆ {..<kk}. sum_over as L = v)"
+  using LHS_char_bounded[OF assms] .
+
+lemma RHS_char_bounded:
+  assumes le: "kk ≤ length as"
+  shows
+    "v ∈ RHS (e_k as s kk) (length as)
+     ⟷ (∃T ⊆ {kk..<length as}. sum_over as T = s - v)"
 proof -
   let ?n = "length as"
 
-  (* Expand LHS and use your bounded DT-prefix lemma to remove guards *)
-  have LHS_exp:
-    "v ∈ LHS (e_k as s kk) ?n
-     ⟷ (∃xs∈bitvec ?n. v = (∑ i = 0..<kk. as ! i * xs ! i))"
-  proof -
-    have
-      "v ∈ LHS (e_k as s kk) ?n
-       ⟷ (∃xs∈bitvec ?n. v = SubsetSum_DecisionTree.sum_as_on as {0..<kk} xs)"
-      by (simp add: SubsetSum_DecisionTree.LHS_def
-                    SubsetSum_DecisionTree.e_k_def
-                    SubsetSum_DecisionTree.lhs_of_def)
-    also from kk_le have
-      "… ⟷ (∃xs∈bitvec ?n. v = (∑ i = 0..<kk. as ! i * xs ! i))"
-      by (simp add: sum_as_on_guarded_DT_prefix_bounded bitvec_length atLeast0LessThan)
-    finally show ?thesis .
-  qed
-
-  (* ⇒ : bitvector → subset over {..<kk} *)
-  have to_set:
-    "⋀xs. xs ∈ bitvec ?n ⟹
-          ∃L ⊆ {..<kk}. (∑ i = 0..<kk. as ! i * xs ! i) = sum_over as L"
-  proof -
-    fix xs assume xs_bv: "xs ∈ bitvec ?n"
-    have len: "length xs = ?n" and xs01: "set xs ⊆ ({0,1}::int set)"
-      using xs_bv by (auto simp: bitvec_def)
-    define L where "L = {i∈{..<kk}. xs ! i = 1}"
-    have Lsub: "L ⊆ {..<kk}" by (simp add: L_def)
-
-    have "(∑ i = 0..<kk. as ! i * xs ! i)
-          = (∑ i = 0..<kk. as ! i * (if i∈L then 1 else 0))"
-    proof (rule sum.cong[OF refl], goal_cases)
-      case (1 i)
-      have "i < kk ⟹ xs ! i = 0 ∨ xs ! i = 1"
-        using xs01 len 1 by (auto simp: nth_mem)
-      moreover have "(i∈L) ⟷ xs ! i = 1" by (simp add: L_def 1)
-      ultimately show ?case by auto
-    qed
-    also have "... = (∑ i∈{0..<kk}. if i∈L then as ! i else 0)"
-      by (simp add: atLeast0LessThan)
-    also have "... = (∑ i∈L. as ! i)"
-      using Lsub by (simp add: sum.If_cases Int_absorb1)
-    finally have eq: "(∑ i = 0..<kk. as ! i * xs ! i) = sum_over as L"
-      by (simp add: sum_over_def)
-    thus "∃L ⊆ {..<kk}. (∑ i = 0..<kk. as ! i * xs ! i) = sum_over as L"
-      by (intro exI[of _ L]) (simp add: Lsub)
-  qed
-
-  (* ⇐ : subset → bitvector mask *)
-  have to_bv:
-    "⋀L. L ⊆ {..<kk} ⟹
-         ∃xs∈bitvec ?n. (∑ i = 0..<kk. as ! i * xs ! i) = sum_over as L"
-  proof -
-    fix L assume Lsub: "L ⊆ {..<kk}"
-    define xs where "xs = map (λi. if i∈L then (1::int) else 0) [0..<?n]"
-    have xs_bv: "xs ∈ bitvec ?n"
-      by (simp add: xs_def mask_is_bitvec)
-    have "(∑ i = 0..<kk. as ! i * xs ! i)
-          = (∑ i∈{0..<kk}. as ! i * xs ! i)"
-      by (simp add: atLeast0LessThan)
-    also have "... = (∑ i∈{0..<kk}. as ! i * (if i∈L then 1 else 0))"
-      by (intro sum.cong[OF refl]) (simp add: xs_def)
-    also have "... = (∑ i∈L. as ! i)"
-      using Lsub by (simp add: sum.If_cases Int_absorb1)
-    finally have "(∑ i = 0..<kk. as ! i * xs ! i) = sum_over as L"
-      by (simp add: sum_over_def)
-    thus "∃xs∈bitvec ?n. (∑ i = 0..<kk. as ! i * xs ! i) = sum_over as L"
-      using xs_bv by blast
-  qed
-
-  show ?thesis
-    using LHS_exp to_set to_bv by blast
-qed
-
-lemma RHS_char [iff]:
-  fixes as :: "int list" and v :: int
-  shows "v ∈ RHS (e_k as s kk) (length as) ⟷ (∃R⊆{kk..<length as}. sum_over as R = s - v)"
-proof -
-  let ?n = "length as"
-  (* Unfold RHS to the “suffix masked sum”, written as s minus that sum *)
   have RHS_exp:
     "v ∈ RHS (e_k as s kk) ?n
-     ⟷ (∃xs∈bitvec ?n. v = s - (∑ i∈{kk..<?n}. as ! i * xs ! i))"
-    by (simp add: RHS_def e_k_def rhs_of_def)
-
-  have to_sets:
-    "∃R⊆{kk..<?n}. sum_over as R = s - (s - (∑ i∈{kk..<?n}. as ! i * xs ! i))"
-    if xs_bv: "xs ∈ bitvec ?n" for xs
-  proof -
-    define R where "R = {i∈{kk..<?n}. xs ! i = 1}"
-    have step:
-      "(∑ i∈{kk..<?n}. as ! i * xs ! i)
-       = (∑ i∈{kk..<?n}. if i∈R then as ! i else 0)"
-    proof (rule sum.cong[OF refl])
-      fix i assume "i ∈ {kk..<?n}"
-      then have iLt: "i < ?n" by auto
-      have "xs ! i = (0::int) ∨ xs ! i = 1"
-        using xs_bv iLt by (auto simp: bitvec_def)
-      moreover have "(i∈R) ⟷ xs!i = 1" using ‹i∈{kk..<?n}› by (simp add: R_def)
-      ultimately show "as!i * xs!i = (if i∈R then as!i else 0)" by auto
-    qed
-    have "(∑ i∈{kk..<?n}. if i∈R then as ! i else 0) = sum_over as R"
-      by (simp add: sum_over_def sum.If_cases Int_commute)
-    hence "sum_over as R = (∑ i∈{kk..<?n}. as ! i * xs ! i)" using step by simp
-    moreover have "R ⊆ {kk..<?n}" by (simp add: R_def)
-    ultimately show ?thesis by auto
-  qed
-
-  have to_bitvec:
-    "∃xs∈bitvec ?n. s - (∑ i∈{kk..<?n}. as ! i * xs ! i) = v"
-    if Rsub: "R ⊆ {kk..<?n}" and vdef: "sum_over as R = s - v" for R
-  proof -
-    define xs where "xs = map (λi. if i ∈ R then (1::int) else 0) [0..<?n]"
-    have xs_bv: "xs ∈ bitvec ?n"
-      by (simp add: xs_def mask_is_bitvec)
-    have "(∑ i∈{kk..<?n}. as ! i * xs ! i)
-          = (∑ i∈{kk..<?n}. as ! i * (if i∈R then 1 else 0))"
-      by (intro sum.cong[OF refl]) (simp add: xs_def nth_upt)
-    also have "… = sum_over as R"
-      using Rsub by (simp add: sum_over_def sum.If_cases Int_commute)
-    finally have "s - (∑ i∈{kk..<?n}. as ! i * xs ! i) = s - sum_over as R" by simp
-    also have "… = v" using vdef by simp
-    finally show ?thesis using xs_bv by blast
-  qed
+     ⟷ (∃xs∈bitvec ?n. v = s - (∑ i=kk..<?n. as ! i * xs ! i))"
+    unfolding SubsetSum_DecisionTree.RHS_def
+              SubsetSum_DecisionTree.e_k_def
+              SubsetSum_DecisionTree.rhs_of_def
+              SubsetSum_DecisionTree.sum_as_on_def
+    by (simp add: Bex_def conj_commute atLeastLessThan_def)
 
   show ?thesis
-    unfolding RHS_exp
-    by (blast intro: to_sets to_bitvec)
+  proof
+    (* ⇒ : read off T from the 0/1 vector on the suffix kk..<n *)
+    assume "v ∈ RHS (e_k as s kk) ?n"
+    then obtain xs where xs_bv: "xs ∈ bitvec ?n"
+      and vdef: "v = s - (∑ i=kk..<?n. as ! i * xs ! i)"
+      using RHS_exp by blast
+    define T where "T = {i∈{kk..<?n}. xs ! i = 1}"
+
+    have len:  "length xs = ?n"
+      using xs_bv using bitvec_def by blast
+
+    have xs01: "set xs ⊆ ({0,1}::int set)"
+      using xs_bv using bitvec_def by blast
+
+    have "(∑ i=kk..<?n. as ! i * xs ! i)
+          = (∑ i=kk..<?n. (if i∈T then as ! i else 0))"
+    proof (rule sum.cong[OF refl], goal_cases)
+      case (1 i)
+      hence iN: "i < ?n" by auto
+      (* derive xs ! i ∈ {0,1} via nth_mem, not by simp *)
+      have "xs ! i ∈ set xs" using iN len by simp
+      then have xi01: "xs ! i = 0 ∨ xs ! i = 1" using xs01 by auto
+      have "(i∈T) ⟷ xs ! i = 1" using 1 by (simp add: T_def)
+      with xi01 show ?case by auto
+    qed
+    also have "... = (∑ i∈{kk..<?n} ∩ T. as ! i)"
+      by (simp add: sum.If_cases)
+    also have "... = (∑ i∈T. as ! i)"
+      using T_def
+      by (smt (verit, best) Collect_cong Int_iff inf_commute inf_set_def mem_Collect_eq)
+    also have "... = sum_over as T"
+      by (simp add: sum_over_def)
+    finally have "(∑ i=kk..<?n. as ! i * xs ! i) = sum_over as T" .
+
+    with vdef have "sum_over as T = s - v" by simp
+    moreover have "T ⊆ {kk..<?n}" using T_def by blast
+    ultimately show "∃T ⊆ {kk..<length as}. sum_over as T = s - v" by blast
+  next
+    (* ⇐ : build a 0/1 mask from T and fold the sum back *)
+    assume "∃T ⊆ {kk..<?n}. sum_over as T = s - v"
+    then obtain T where Tsub: "T ⊆ {kk..<?n}" and Tv: "sum_over as T = s - v"
+      by blast
+    define xs where "xs = map (λi. if i∈T then (1::int) else 0) [0..<?n]"
+    have xs_bv: "xs ∈ bitvec ?n"
+      by (simp add: xs_def mask_is_bitvec)
+
+    have "(∑ i=kk..< ?n. as ! i * xs ! i)
+        = (∑ i=kk..< ?n. as ! i * (if i ∈ T then 1 else 0))"
+      by (intro sum.cong[OF refl]) (simp add: xs_def)
+    also have "... = (∑ i=kk..< ?n. (if i ∈ T then as ! i else 0))"
+      by (intro sum.cong[OF refl]) simp
+    also have "... = (∑ i∈{kk..< ?n} ∩ T. as ! i)"
+      by (simp add: sum.If_cases)
+    (* absorb the intersection using T ⊆ {kk..< ?n} *)
+    have inter_absorb2: "{kk..< ?n} ∩ T = T"
+      using Tsub by auto
+    have "(∑ i∈{kk..< ?n} ∩ T. as ! i) = (∑ i∈T. as ! i)"
+      by (simp only: inter_absorb2)
+    have "... = sum_over as T"
+      using sum_over_def by auto
+    then have sum_eq_T: "(∑ i=kk..< ?n. as ! i * xs ! i) = sum_over as T" 
+      by (simp add: ‹(∑i = kk..<length as. if i ∈ T then as ! i else 0) = 
+        sum ((!) as) ({kk..<length as} ∩ T)› calculation inter_absorb2)
+    have "v = s - (∑ i=kk..< ?n. as ! i * xs ! i)"
+      using Tv sum_eq_T by simp
+    hence "∃xs∈bitvec ?n. v = s - (∑ i=kk..< ?n. as ! i * xs ! i)"
+      using xs_bv by blast
+    thus "v ∈ RHS (e_k as s kk) ?n"
+      using RHS_exp by simp
+  qed
 qed
+
+lemma RHS_char:
+  assumes "kk ≤ length as"
+  shows   "v ∈ RHS (e_k as s kk) (length as)
+           ⟷ (∃T ⊆ {kk..<length as}. sum_over as T = s - v)"
+  using RHS_char_bounded[OF assms] .
 
 (* disjoint-union splitting for your sum_over *)
 lemma sum_over_union_disjoint:
@@ -735,8 +697,22 @@ lemma sum_over_union_disjoint:
   shows   "sum_over as (A ∪ B) = sum_over as A + sum_over as B"
   using assms by (simp add: sum_over_def sum.union_disjoint)
 
-lemma DSS_intersection_at_most_one:
+lemma distinct_subset_sums_inj_len:
   assumes dss: "distinct_subset_sums as"
+  shows "inj_on (sum_over as) {U. U ⊆ {..<length as}}"
+proof -
+  let ?n = "length as"
+  have sep:
+    "⋀xs ys. xs ∈ bitvec ?n ⟹ ys ∈ bitvec ?n ⟹ xs ≠ ys
+             ⟹ (∑ i<?n. as ! i * xs ! i) ≠ (∑ i<?n. as ! i * ys ! i)"
+    using dss by (simp add: distinct_subset_sums_def)
+  from distinct_subset_sums_inj[OF sep]
+  show ?thesis by simp
+qed
+
+lemma DSS_intersection_at_most_one:
+  assumes le:  "kk ≤ length as"
+      and dss: "distinct_subset_sums as"
   shows
     "⋀v w.
        v ∈ LHS (e_k as s kk) (length as) ∧ v ∈ RHS (e_k as s kk) (length as) ⟹
@@ -748,17 +724,19 @@ proof -
   assume w_in: "w ∈ LHS (e_k as s kk) (length as) ∧ w ∈ RHS (e_k as s kk) (length as)"
 
   obtain L where Lsub: "L ⊆ {..<kk}" and Lv: "sum_over as L = v"
-    using v_in by (auto simp: LHS_char)
+    using v_in by (auto simp: LHS_char[OF le])
   obtain R where Rsub: "R ⊆ {kk..<length as}" and Rv: "sum_over as R = s - v"
-    using v_in by (auto simp: RHS_char)
+    using v_in by (auto simp: RHS_char[OF le])
 
   obtain L' where L'sub: "L' ⊆ {..<kk}" and Lw: "sum_over as L' = w"
-    using w_in by (auto simp: LHS_char)
+    using w_in by (auto simp: LHS_char[OF le])
   obtain R' where R'sub: "R' ⊆ {kk..<length as}" and Rw: "sum_over as R' = s - w"
-    using w_in by (auto simp: RHS_char)
+    using w_in by (auto simp: RHS_char[OF le])
 
-  have LR_disj:   "L ∩ R = {}"   using Lsub Rsub by auto
-  have L'R'_disj: "L' ∩ R' = {}" using L'sub R'sub by auto
+  have LR_disj:   "L ∩ R = {}"   using Lsub Rsub
+    by (metis Int_mono bot.extremum_uniqueI ivl_disj_int_one(2))
+  have L'R'_disj: "L' ∩ R' = {}" using L'sub R'sub 
+    by (metis Int_mono bot.extremum_uniqueI ivl_disj_int_one(2))
   have finL:  "finite L"   using Lsub  by (meson finite_subset finite_lessThan)
   have finR:  "finite R"   using Rsub  by (meson finite_subset finite_atLeastLessThan)
   have finL': "finite L'"  using L'sub by (meson finite_subset finite_lessThan)
@@ -772,17 +750,29 @@ proof -
   have sumS': "sum_over as S' = s"
     using finL' finR' L'R'_disj by (simp add: S'_def sum_over_union_disjoint Lw Rw)
 
-  have Ssub:  "S  ⊆ {..<length as}" using S_def Lsub Rsub by auto
-  have S'sub: "S' ⊆ {..<length as}" using S'_def L'sub R'sub by auto
+  have Ssub:  "S  ⊆ {..<length as}" using S_def Lsub Rsub
+    by (metis Un_mono ivl_disj_un_one(2) le)
+  have S'sub: "S' ⊆ {..<length as}" using S'_def L'sub R'sub 
+    by (metis Un_mono ivl_disj_un_one(2) le)
+
+  have inj: "inj_on (sum_over as) {U. U ⊆ {..<length as}}"
+    by (rule distinct_subset_sums_inj_len[OF dss])
+
+  have eqSums: "sum_over as S = sum_over as S'"
+    using sumS sumS' by simp
 
   have SS': "S = S'"
-    using distinct_subset_sums_inj[OF dss Ssub S'sub] sumS sumS' by simp
+  proof (rule inj_onD[OF inj])
+    show "S ∈ {U. U ⊆ {..<length as}}"  using Ssub  by simp
+    show "S' ∈ {U. U ⊆ {..<length as}}" using S'sub by simp
+    show "sum_over as S = sum_over as S'"  by (rule eqSums)
+  qed
 
   have "L = S ∩ {..<kk}"  and "L' = S' ∩ {..<kk}"
     using Lsub Rsub L'sub R'sub by (auto simp: S_def S'_def)
   hence "L = L'" using SS' by simp
 
-  thus "v = w" by (simp add: Lv Lw)
+  thus "v = w" using Lv Lw by simp
 qed
 
 lemma DSS_unique_value_param:
@@ -800,7 +790,8 @@ proof -
 qed
 
 lemma DSS_hit:
-  assumes dss: "distinct_subset_sums as"
+  assumes le:  "kk ≤ length as"
+      and dss: "distinct_subset_sums as"
       and SOL: "∃S⊆{..<length as}. sum_over as S = s"
   shows "∃v ∈ LHS (e_k as s kk) (length as). v ∈ RHS (e_k as s kk) (length as)"
 proof -
@@ -821,21 +812,22 @@ proof -
   have Rsub: "R ⊆ {kk..<length as}" unfolding R_def by auto
 
   have v_in_LHS: "v ∈ LHS (e_k as s kk) (length as)"
-    unfolding LHS_char v_def using Lsub by blast
+    using Lsub by (auto simp: LHS_char[OF le] v_def)
 
   have "v + sum_over as R = s" using SS splitS v_def by simp
   hence R_sum: "sum_over as R = s - v" by simp
 
   have v_in_RHS: "v ∈ RHS (e_k as s kk) (length as)"
-    unfolding RHS_char using Rsub R_sum by blast
+    using Rsub R_sum by (auto simp: RHS_char[OF le])
 
   show ?thesis using v_in_LHS v_in_RHS by blast
 qed
 
 lemma DSS_unique_value:
-  assumes dss: "distinct_subset_sums as"
+  assumes le:  "kk ≤ length as"
+      and dss: "distinct_subset_sums as"
   shows "∃!v. v ∈ LHS (e_k as s kk) (length as) ∧ v ∈ RHS (e_k as s kk) (length as)"
-  using DSS_unique_value_param[OF dss] DSS_hit[OF dss] by auto
+  using DSS_unique_value_param[OF le dss] DSS_hit[OF le dss] by auto
 
 (* there exists also an L value not in the R set *)
 lemma DSS_miss:
@@ -846,7 +838,7 @@ proof -
   obtain v where v_in:
     "v ∈ LHS (e_k as s kk) (length as) ∩ RHS (e_k as s kk) (length as)"
     and uniq:  "⋀w. w ∈ LHS (e_k as s kk) (length as) ∩ RHS (e_k as s kk) (length as) ⟹ w = v"
-    using DSS_unique_value[OF dss] by (metis ex1E)
+    using DSS_unique_value[OF dss] by (metis IntD1 IntD2 IntI)
   obtain u w where uL: "u ∈ LHS (e_k as s kk) (length as)"
                  and wL: "w ∈ LHS (e_k as s kk) (length as)"
                  and uneq: "u ≠ w"
