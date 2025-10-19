@@ -897,11 +897,11 @@ proof -
   qed
 qed
 
-(* uniqueness-of-witness for the baseline; adjust statement to what you need *)
 lemma DSS_baseline_only_j_ex:
-  assumes le:  "kk ≤ length as"
-      and dss: "distinct_subset_sums as"
+  assumes le:   "kk ≤ length as"
+      and dss:  "distinct_subset_sums as"
       and BASE: "Good as s ((!) (x0 as s)) ((!) (x0 as s))"
+      and SOL:  "∃S ⊆ {..<length as}. sum_over as S = s"
   shows "∃j<length (enumL as s kk).
            (∀j'<length (enumL as s kk). j' ≠ j ⟶
               Lval_at as s ((!) (x0 as s)) j' ∉ set (enumR as s kk))"
@@ -911,21 +911,18 @@ proof -
     and inRj: "Lval_at as s ((!) (x0 as s)) j ∈ set (enumR as s kk)"
     using BASE Good_char_encR[of as s "(!) (x0 as s)"] by blast
 
-  (* Uniqueness of the intersection value: there is exactly one v in LHS∩RHS *)
-  have SOL: "∃S ⊆ {..<length as}. sum_over as S = s"
-  by (* your proof that s is attainable *)
-
-have ex1:
-  "∃!v. v ∈ LHS (e_k as s kk) (length as) ∧ v ∈ RHS (e_k as s kk) (length as)"
-  using DSS_unique_value[OF le dss SOL] .
+  (* Uniqueness of the intersection value *)
+  have ex1:
+    "∃!v. v ∈ LHS (e_k as s kk) (length as) ∧ v ∈ RHS (e_k as s kk) (length as)"
+    using DSS_unique_value[OF le dss SOL] .
 
   (* That unique value is precisely enumL!j *)
   have Vj: "Lval_at as s ((!) (x0 as s)) j = enumL as s kk ! j"
     using Lval_at_on_enc_block jL by simp
   have meet_j:
     "enumL as s kk ! j ∈ LHS (e_k as s kk) (length as) ∧
-                         enumL as s kk ! j ∈ RHS (e_k as s kk) (length as)"
-    using enumL_set enumR_set jL Vj inRj by auto
+     enumL as s kk ! j ∈ RHS (e_k as s kk) (length as)"
+    using enumL_set enumR_set jL Vj inRj nth_mem by force
 
   (* Any other j' hitting RHS would force equal enumL-values; but enumL is distinct *)
   have distinctL: "distinct (enumL as s kk)" by (simp add: enumL_def)
@@ -941,23 +938,28 @@ have ex1:
       assume "Lval_at as s ((!) (x0 as s)) j' ∈ set (enumR as s kk)"
       then obtain jR' where jR': "jR' < length (enumR as s kk)"
         and EQ': "Rval_at as s ((!) (x0 as s)) jR' = Lval_at as s ((!) (x0 as s)) j'"
-        by (meson in_set_conv_nth)
+        by (metis Rval_at_on_enc_block in_set_conv_nth)
       hence meet_j':
         "enumL as s kk ! j' ∈ LHS (e_k as s kk) (length as) ∧
-                           enumL as s kk ! j' ∈ RHS (e_k as s kk) (length as)"
-        using enumL_set enumR_set j'L Vj' by auto
+         enumL as s kk ! j' ∈ RHS (e_k as s kk) (length as)"
+        using enumL_set enumR_set j'L Vj'
+        by (metis ‹Lval_at as s ((!) (x0 as s)) j' ∈ set (enumR as s kk)› nth_mem)
       from ex1 meet_j meet_j'
       have "enumL as s kk ! j = enumL as s kk ! j'" by auto
-      with distinct_conv_nth[THEN iffD1, OF distinctL jL j'L] ne show False by blast
+      have eq: "enumL as s kk ! j = enumL as s kk ! j'" by fact
+      have j_eq: "j = j'"
+        using distinctL eq j'L jL nth_eq_iff_index_eq by blast
+      from ne and j_eq show False by simp
     qed
   qed
   show ?thesis using jL no_other by blast
 qed
 
 lemma DSS_baseline_only_jR_ex:
-  assumes le:  "kk ≤ length as"
-      and dss: "distinct_subset_sums as"
+  assumes le:   "kk ≤ length as"
+      and dss:  "distinct_subset_sums as"
       and BASE: "Good as s ((!) (x0 as s)) ((!) (x0 as s))"
+      and SOL:  "∃S ⊆ {..<length as}. sum_over as S = s"
   shows "∃j<length (enumR as s kk).
            (∀j'<length (enumR as s kk). j' ≠ j ⟶
               Rval_at as s ((!) (x0 as s)) j' ∉ set (enumL as s kk))"
@@ -968,16 +970,17 @@ proof -
     using BASE Good_char_encL[of as s "(!) (x0 as s)"] by blast
 
   (* Uniqueness of the intersection value *)
-  have ex1: "∃!v. v ∈ LHS (e_k as s kk) (length as) ∧ v ∈ RHS (e_k as s kk) (length as)"
-    using DSS_unique_value[OF le dss] .
+  have ex1:
+    "∃!v. v ∈ LHS (e_k as s kk) (length as) ∧ v ∈ RHS (e_k as s kk) (length as)"
+    using DSS_unique_value[OF le dss SOL] .
 
   (* That unique value is precisely enumR!j *)
   have Vj: "Rval_at as s ((!) (x0 as s)) j = enumR as s kk ! j"
     using Rval_at_on_enc_block jR by simp
   have meet_j:
     "enumR as s kk ! j ∈ RHS (e_k as s kk) (length as) ∧
-                         enumR as s kk ! j ∈ LHS (e_k as s kk) (length as)"
-    using enumL_set enumR_set jR Vj inLj by auto
+     enumR as s kk ! j ∈ LHS (e_k as s kk) (length as)"
+    using enumL_set enumR_set jR Vj inLj by (metis nth_mem)
 
   (* Any other j' hitting L would force equal enumR-values; but enumR is distinct *)
   have distinctR: "distinct (enumR as s kk)" by (simp add: enumR_def)
@@ -993,14 +996,19 @@ proof -
       assume "Rval_at as s ((!) (x0 as s)) j' ∈ set (enumL as s kk)"
       then obtain jL' where jL': "jL' < length (enumL as s kk)"
         and EQ': "Lval_at as s ((!) (x0 as s)) jL' = Rval_at as s ((!) (x0 as s)) j'"
-        by (meson in_set_conv_nth)
+        by (metis Lval_at_on_enc_block in_set_conv_nth)
       hence meet_j':
         "enumR as s kk ! j' ∈ RHS (e_k as s kk) (length as) ∧
-                           enumR as s kk ! j' ∈ LHS (e_k as s kk) (length as)"
-        using enumL_set enumR_set j'R Vj' by auto
+         enumR as s kk ! j' ∈ LHS (e_k as s kk) (length as)"
+        using enumL_set enumR_set j'R Vj'
+        by (metis ‹Rval_at as s ((!) (x0 as s)) j' ∈ set (enumL as s kk)› nth_mem)
       from ex1 meet_j meet_j'
       have "enumR as s kk ! j = enumR as s kk ! j'" by auto
-      with distinct_conv_nth[THEN iffD1, OF distinctR jR j'R] ne show False by blast
+      have eq: "enumL as s kk ! j = enumL as s kk ! j'"
+        using ‹enumR as s kk ! j = enumR as s kk ! j'› distinctR j'R jR nth_eq_iff_index_eq by blast
+      have neq: "enumL as s kk ! j ≠ enumL as s kk ! j'"
+        using ‹enumR as s kk ! j = enumR as s kk ! j'› distinctR j'R jR ne nth_eq_iff_index_eq by blast
+      from eq and neq show False by contradiction
     qed
   qed
   show ?thesis using jR no_other by blast
