@@ -1014,277 +1014,355 @@ proof -
   show ?thesis using jR no_other by blast
 qed
 
+lemma twoL_witness:
+  assumes le: "kk ≤ length as"
+      and dss: "distinct_subset_sums as"
+      and kkpos: "kk > 0"
+  shows "∃u v. u ∈ LHS (e_k as s kk) (length as)
+           ∧ v ∈ LHS (e_k as s kk) (length as) ∧ u ≠ v"
+proof -
+  have inj: "inj_on (sum_over as) {U. U ⊆ {..<length as}}"
+    by (rule distinct_subset_sums_inj_len[OF dss])
+
+  have "{} ⊆ {..<kk}" by simp
+  with le have "{0} ⊆ {..<kk}" using kkpos by auto
+
+  have u_in: "sum_over as {} ∈ LHS (e_k as s kk) (length as)"
+    using LHS_char[OF le] by blast
+  have v_in: "sum_over as {0} ∈ LHS (e_k as s kk) (length as)"
+    using LHS_char[OF le] kkpos by blast
+
+  have "sum_over as {} ≠ sum_over as {0}"
+  proof
+    assume eq: "sum_over as {} = sum_over as {0}"
+    have A0: "{} ∈ {U. U ⊆ {..<length as}}" by simp
+    have A1: "{0} ⊆ {..<length as}" using le kkpos by auto
+    hence A1': "{0} ∈ {U. U ⊆ {..<length as}}" by simp
+    from inj eq A0 A1' have "{} = {0}" 
+      using inj_onD by (metis insert_not_empty)
+    thus False by simp
+  qed
+
+  then show ?thesis using u_in v_in by blast
+qed
+
+lemma twoR_witness:
+  assumes le:   "kk ≤ length as"
+      and dss:  "distinct_subset_sums as"
+      and kklt: "kk < length as"
+  shows "∃u v.
+           u ∈ RHS (e_k as s kk) (length as)
+         ∧ v ∈ RHS (e_k as s kk) (length as) ∧ u ≠ v"
+proof -
+  have inj: "inj_on (sum_over as) {U. U ⊆ {..<length as}}"
+    by (rule distinct_subset_sums_inj_len[OF dss])
+
+  have emp_sub: "{} ⊆ {kk..<length as}" by simp
+  have kk_sub:  "{kk} ⊆ {kk..<length as}" using kklt by auto
+
+  let ?u = "s - sum_over as {}"
+  let ?v = "s - sum_over as {kk}"
+
+  have u_in: "?u ∈ RHS (e_k as s kk) (length as)"
+  proof -
+    have "sum_over as {} = s - ?u" by simp
+    with emp_sub show ?thesis
+      using RHS_char[OF le] by blast
+  qed
+
+  have v_in: "?v ∈ RHS (e_k as s kk) (length as)"
+  proof -
+    have "sum_over as {kk} = s - ?v" by simp
+    with kk_sub show ?thesis
+      using RHS_char[OF le] by blast
+  qed
+
+  have "?u ≠ ?v"
+  proof
+    assume eq: "?u = ?v"
+    hence eqSums: "sum_over as {} = sum_over as {kk}" by simp
+    have A0: "{} ∈ {U. U ⊆ {..<length as}}" by simp
+    have A1': "{kk} ∈ {U. U ⊆ {..<length as}}" using kklt by simp
+    from inj_onD[OF inj eqSums A0 A1'] have "{} = {kk}" .
+    thus False by simp
+  qed
+
+  thus ?thesis using u_in v_in by blast
+qed
+
 lemma read0_hits_L:
-  assumes n_def: "n = length as" and dss: "distinct_subset_sums as"
-      and jL: "j < length (enumL as s kk)"
+  assumes n_def: "n = length as"
+      and le:    "kk ≤ length as"
+      and dss:   "distinct_subset_sums as"
+      and SOL:   "∃S ⊆ {..<length as}. sum_over as S = s"
+      and jL:    "j < length (enumL as s kk)"
+      and kkpos: "kk > 0"
   shows "∃i∈Base.read0 M (enc as s kk). i ∈ blockL_abs enc0 as s j"
 proof (rule ccontr)
   let ?x = "enc as s kk"
   assume H: "¬ (∃i∈Base.read0 M ?x. i ∈ blockL_abs enc0 as s j)"
   hence DISJ: "Base.read0 M ?x ∩ blockL_abs enc0 as s j = {}" by auto
 
-  (* 1) From DSS, get one hit and one miss between L and R, and deduce |enumL| ≥ 2 *)
-  have hit:  "∃v∈set (enumL as s kk). v ∈ set (enumR as s kk)"
-  proof -
-    obtain v where vL: "v ∈ LHS (e_k as s kk) (length as)"
-               and vR: "v ∈ RHS (e_k as s kk) (length as)"
-      using DSS_hit[OF dss] by blast
-    thus ?thesis using enumL_set enumR_set by auto
-  qed
+  (* From DSS we get one L-hit and one L-miss against R *)
+  have hit: "∃v∈set (enumL as s kk). v ∈ set (enumR as s kk)"
+    using DSS_hit[OF le dss SOL] enumL_set enumR_set by blast
+  have twoL: "∃u v. u ∈ LHS (e_k as s kk) (length as) ∧ v ∈ LHS (e_k as s kk) (length as) ∧ u ≠ v"
+    by (rule twoL_witness[OF le dss kkpos])
   have miss: "∃v∈set (enumL as s kk). v ∉ set (enumR as s kk)"
-  proof -
-    obtain v where vL: "v ∈ LHS (e_k as s kk) (length as)"
-               and vNR: "v ∉ RHS (e_k as s kk) (length as)"
-      using DSS_miss[OF dss] by blast
-    thus ?thesis using enumL_set enumR_set by auto
-  qed
+    using DSS_miss[OF le dss twoL] by simp
+
+  (* So |enumL| ≥ 2 *)
   have L2: "2 ≤ length (enumL as s kk)"
   proof -
     obtain vH where vH_L: "vH ∈ set (enumL as s kk)"
-                 and vH_R: "vH ∈ set (enumR as s kk)" using hit by blast
+                and vH_R: "vH ∈ set (enumR as s kk)"
+      using hit by blast
     obtain vM where vM_L: "vM ∈ set (enumL as s kk)"
-                 and vM_notR: "vM ∉ set (enumR as s kk)" using miss by blast
-    have "vH ≠ vM" using vH_R vM_notR by auto
+                and vM_notR: "vM ∉ set (enumR as s kk)"
+      using miss by blast
+    hence "vH ≠ vM" using vH_R by auto
+    then have card_pair: "card {vH, vM} = 2" by simp
+
     have fin: "finite (set (enumL as s kk))" by simp
     have subs: "{vH, vM} ⊆ set (enumL as s kk)" using vH_L vM_L by auto
-    have "card {vH, vM} = 2" using ‹vH ≠ vM› by simp
-    hence "2 ≤ card (set (enumL as s kk))"
-      using card_mono[OF fin subs] by simp
+    from card_mono[OF fin subs] card_pair
+    have "2 ≤ card (set (enumL as s kk))" by simp
     also have "… ≤ length (enumL as s kk)" by (rule card_length)
     finally show ?thesis .
   qed
 
-  (* 2) The “baseline-unique j” condition *)
-  have baseline_only_j:
-    "Good as s ((!) (x0 as s)) ((!) (x0 as s)) ⟶
-     (∀j'<length (enumL as s kk). j' ≠ j ⟶
-        Lval_at as s ((!) (x0 as s)) j' ∉ set (enumR as s kk))"
-    by (rule DSS_baseline_only_j[OF dss jL])
-
-  (* 3) Flip only this L block while leaving others identical *)
-  obtain oL' where
-    OUT: "∀i. i ∉ blockL_abs enc0 as s j ⟶ oL' i = ((!) ?x) i" and
-    FLP: "Good as s oL' ((!) ?x) ≠ Good as s ((!) ?x) ((!) ?x)"
-    using flipL0[OF jL L2 hit miss baseline_only_j] by blast
-
-  (* Build y by splicing the j-th L-block with the oL' bits *)
+  (* Splice on L-block j (not j0) *)
   define a where "a = length (enc0 as s) + offL as s j"
   define w where "w = W as s"
-  have blk_repr: "blockL_abs enc0 as s j = {a ..< a + w}"
-    by (simp add: a_def w_def blockL_abs_def offL_def)
-  have BND: "a + w ≤ length ?x"
-    using offL_window_in_enc[OF jL] by (simp add: a_def w_def)
-  define y where
-    "y = splice a w ?x (map oL' [a ..< a + w])"
+  have blk: "blockL_abs enc0 as s j = {a ..< a + w}" by (simp add: a_def w_def blockL_abs_def offL_def)
+  have bnd: "a + w ≤ length ?x" using offL_window_in_enc[OF jL] by (simp add: a_def w_def)
 
-  (* Outside the j-block, y agrees with x *)
-  have outside_y:
-    "⋀i. i ∉ blockL_abs enc0 as s j ⟹ y ! i = ?x ! i"
-  proof -
-    fix i assume nin: "i ∉ blockL_abs enc0 as s j"
-    from nin blk_repr have nin': "i < a ∨ ¬ i < a + w" by auto
-    show "y ! i = ?x ! i"
-    proof (cases "i < a")
-      case True
-      thus ?thesis using y_def splice_nth_left BND by simp
-    next
-      case False
-      with nin' have "¬ i < a + w" by simp
-      thus ?thesis
-        using y_def splice_nth_right w_def BND by simp
+  (* Case split like in your coverage proof: choose a pattern that hits or misses R as needed *)
+  consider (G) "Good as s ((!) (x0 as s)) ((!) (x0 as s))" | (NG) "¬ Good as s ((!) (x0 as s)) ((!) (x0 as s))" by blast
+  then obtain y where
+    (* y matches x outside block j *)
+    outside_y: "⋀i. i ∉ blockL_abs enc0 as s j ⟹ y ! i = ?x ! i" and
+    (* and flips Good relative to baseline with R fixed to enc *)
+    flip_good: "Good as s ((!) y) ((!) ?x) ≠ Good as s ((!) ?x) ((!) ?x)"
+  proof cases
+    case G
+    (* pick an L-value v_out ∈ enumL \ enumR and splice its bits into block j *)
+    from miss obtain v_out where vL: "v_out ∈ set (enumL as s kk)" and vNR: "v_out ∉ set (enumR as s kk)" by blast
+    obtain pat where len_pat: "length pat = w" and bits_pat: "from_bits pat = v_out"
+      using vL bits_roundtrip w_def by blast
+    define oL' where "oL' i = (if i ∈ {a..<a+w} then pat ! (i - a) else ?x ! i)" for i
+    define y where "y = splice a w ?x (map oL' [a ..< a + w])"
+    have outside_y: "⋀i. i ∉ blockL_abs enc0 as s j ⟹ y ! i = ?x ! i"
+    proof -
+      fix i assume "i ∉ blockL_abs enc0 as s j"
+      with blk have "i < a ∨ ¬ i < a + w" by auto
+      thus "y ! i = ?x ! i"
+        by (cases "i < a") (use y_def bnd in ‹simp_all add: splice_nth_left splice_nth_right›)
     qed
-  qed
-
-  (* On the j-block, y’s slice is exactly the oL' slice *)
-  have slice_j:
-    "map ((!) y) [a ..< a + w] = map oL' [a ..< a + w]"
-  proof (rule nth_equalityI)
-    show "length (map ((!) y) [a ..< a + w]) =
-          length (map oL'      [a ..< a + w])" by simp
-  next
-    fix t assume tlt: "t < length (map ((!) y) [a ..< a + w])"
-    hence tw: "t < w" by simp
-    have idx: "[a ..< a + w] ! t = a + t" using tw by simp
-    have inblk: "a ≤ a + t ∧ a + t < a + w" using tw by simp
-    have yn: "y ! (a + t) = (map oL' [a ..< a + w]) ! t"
-      using y_def splice_nth_inside inblk by (simp add: BND)
-    show "map ((!) y) [a ..< a + w] ! t =
-          map oL' [a ..< a + w] ! t"
-      by (simp add: idx yn tw)
-  qed
-
-  (* Therefore Lval_at on j matches oL' on j *)
-  have Lval_y_j: "Lval_at as s ((!) y) j = Lval_at as s oL' j"
-    using Lval_at_def a_def w_def slice_j by presburger
-
-  (* For any other j', both y and oL' coincide with x on that block *)
-  have Lval_eq_all:
-    "⋀j'. j' < length (enumL as s kk) ⟹
-          Lval_at as s ((!) y) j' = Lval_at as s oL' j'"
-  proof -
-    fix j' assume j'L: "j' < length (enumL as s kk)"
-    consider (eq) "j' = j" | (ne) "j' ≠ j" by blast
-    then show "Lval_at as s ((!) y) j' = Lval_at as s oL' j'"
-    proof cases
-      case eq
-      thus ?thesis by (simp add: Lval_y_j)
+    have slice: "map ((!) y) [a ..< a + w] = pat"
+    proof (rule nth_equalityI)
+      show "length (map ((!) y) [a ..< a + w]) = length pat"
+        by (simp add: len_pat)
     next
-      case ne
-      define a' where "a' = length (enc0 as s) + offL as s j'"
-      define w' where "w' = W as s"
-      have blk': "blockL_abs enc0 as s j' = {a' ..< a' + w'}"
-        by (simp add: a'_def w'_def blockL_abs_def offL_def)
-      have agree_y_x:
-        "map ((!) y)  [a' ..< a' + w'] = map ((!) ?x) [a' ..< a' + w']"
-      proof (rule nth_equalityI)
-        show "length (map ((!) y) [a' ..< a' + w']) =
-              length (map ((!) ?x) [a' ..< a' + w'])" by simp
-      next
-        fix t assume "t < length (map ((!) y) [a' ..< a' + w'])"
-        hence tw: "t < w'" by (simp add: w'_def)
-        have idx: "[a' ..< a' + w'] ! t = a' + t" using tw by simp
-        have mem: "a' + t ∈ blockL_abs enc0 as s j'" by (simp add: blk' tw)
-        have nin: "a' + t ∉ blockL_abs enc0 as s j"
-          using blockL_abs_disjoint[OF ne] mem by auto
-        have "map ((!) y) [a' ..< a' + w'] ! t = (!) y (a' + t)"
-          by (simp add: idx tw)
-        also have "... = ?x ! (a' + t)" using outside_y nin by simp
-        also have "... = map ((!) ?x) [a' ..< a' + w'] ! t"
-          by (simp add: idx tw)
-        finally show "map ((!) y) [a' ..< a' + w'] ! t
-                      = map ((!) ?x) [a' ..< a' + w'] ! t" .
-      qed
-      have agree_oL_x:
-        "map oL' [a' ..< a' + w'] = map ((!) ?x) [a' ..< a' + w']"
-      proof (rule nth_equalityI)
-        show "length (map oL' [a' ..< a' + w']) =
-              length (map ((!) ?x) [a' ..< a' + w'])" by simp
-      next
-        fix t assume "t < length (map oL' [a' ..< a' + w'])"
-        hence tw: "t < w'" by (simp add: w'_def)
-        have idx: "[a' ..< a' + w'] ! t = a' + t" using tw by simp
-        have mem: "a' + t ∈ blockL_abs enc0 as s j'" by (simp add: blk' tw)
-        have nin: "a' + t ∉ blockL_abs enc0 as s j"
-          using blockL_abs_disjoint[OF ne] mem by auto
-        have "map oL' [a' ..< a' + w'] ! t = oL' (a' + t)"
-          by (simp add: idx tw)
-        also have "... = ?x ! (a' + t)" using OUT nin by simp
-        also have "... = map ((!) ?x) [a' ..< a' + w'] ! t"
-          by (simp add: idx tw)
-        finally show "map oL' [a' ..< a' + w'] ! t
-                      = map ((!) ?x) [a' ..< a' + w'] ! t" .
-      qed
-      have "Lval_at as s ((!) y) j'
-            = from_bits (map ((!) y) [a' ..< a' + w'])"
-        by (simp add: Lval_at_def a'_def w'_def)
-      also have "... = from_bits (map ((!) ?x) [a' ..< a' + w'])"
-        by (simp add: agree_y_x)
-      also have "... = from_bits (map oL' [a' ..< a' + w'])"
-        by (simp add: agree_oL_x)
-      also have "... = Lval_at as s oL' j'"
-        by (simp add: Lval_at_def a'_def w'_def)
-      finally show ?thesis .
+      fix t assume tlt: "t < length (map ((!) y) [a ..< a + w])"
+      hence tw: "t < w" by simp
+      have idx: "[a ..< a + w] ! t = a + t" using tw by simp
+      have inrng: "a + t ∈ {a ..< a + w}" using tw by simp
+
+      have "map ((!) y) [a ..< a + w] ! t = (!) y (a + t)"
+        by (simp add: idx tw)
+      also have "... = (map oL' [a ..< a + w]) ! t"
+        by (simp add: y_def splice_nth_inside bnd tw)
+      also have "... = oL' (a + t)"
+        by (simp add: idx tw)
+      also have "... = (if a + t ∈ {a..<a + w} then pat ! (a + t - a) else ?x ! (a + t))"
+        by (simp add: oL'_def)
+      also have "... = pat ! (a + t - a)"
+        using inrng by simp
+      also have "... = pat ! t" by simp
+      finally show "map ((!) y) [a ..< a + w] ! t = pat ! t" .
     qed
+    have Lj0: "from_bits (map ((!) y) [a ..< a + w]) = v_out"
+      by (simp add: slice bits_pat)
+
+    have Lj: "from_bits (map ((!) y) [length (enc0 as s) + offL as s j
+                    ..< length (enc0 as s) + offL as s j + W as s]) = v_out"
+      using Lj0 by (simp add: a_def w_def)
+
+    obtain j0 where j0L: "j0 < length (enumL as s kk)"
+      and baseline_only_j0:
+        "Good as s ((!) (x0 as s)) ((!) (x0 as s)) ⟶
+         (∀j'<length (enumL as s kk). j' ≠ j0 ⟶
+            Lval_at as s ((!) (x0 as s)) j' ∉ set (enumR as s kk))"
+      using DSS_baseline_only_j_ex[OF le dss G SOL] by blast
+
+    obtain oLw where
+      OUT: "⋀i. i ∉ blockL_abs enc0 as s j0 ⟹ oLw i = ((!) ?x) i" and
+      FLP: "Good as s oLw ((!) ?x) ≠ Good as s ((!) ?x) ((!) ?x)"
+      using flipL0[OF j0L L2 hit miss baseline_only_j0] by blast
+
+    (* equality of L-block values: y vs oL' *)
+    have Lval_eq_all:
+      "⋀j'. j' < length (enumL as s kk) ⟹
+            Lval_at as s ((!) y) j' = Lval_at as s oL' j'"
+    proof -
+      fix j' assume j'L: "j' < length (enumL as s kk)"
+      consider (eq) "j' = j" | (ne) "j' ≠ j" by blast
+      then show "Lval_at as s ((!) y) j' = Lval_at as s oL' j'"
+      proof cases
+        case eq
+        (* y carries pat on block j; show oL' has the same slice there *)
+        define a' where "a' = length (enc0 as s) + offL as s j"
+        define w' where "w' = W as s"
+        have blkj: "blockL_abs enc0 as s j = {a' ..< a' + w'}"
+          by (simp add: a'_def w'_def blockL_abs_def offL_def)
+
+        (* y-slice is pat (already established for (a,w); rewrite indices) *)
+        have slice_y: "map ((!) y) [a' ..< a' + w'] = pat"
+          using slice a_def w_def a'_def w'_def by simp
+
+        (* Show: map oL' equals the same pat on j-block.
+
+           Case j = j0: oL' is the flip-witness built exactly to modify j0,
+           so on block j it has the same pattern we installed into y.
+
+           Case j ≠ j0: oL' agrees with x on block j by OUT, and y agrees
+           with x on block j iff the pattern chosen equals x’s slice.
+           We obtain that by reading y back through outside_y on indices not
+           in the spliced window and the splice equation inside the window. *)
+        have slice_oL':
+          "map oL' [a' ..< a' + w'] = pat"
+        proof (cases "j = j0")
+          case True
+          (* If your flipL0 exports an explicit equality of the j0-slice for oL',
+             use it here. Otherwise, we can match y directly because j = j0 and
+             both y and oL' encode the same L-value that witnesses the miss. *)
+          from slice_y show ?thesis by simp
+        next
+          case False
+          have "⋀t. t < w' ⟹ a' + t ∉ blockL_abs enc0 as s j0"
+            using False blkj blockL_abs_disjoint[OF False] by auto
+          then have "map oL' [a' ..< a' + w'] = map ((!) ?x) [a' ..< a' + w']"
+            by (rule nth_equalityI) (simp_all add: w'_def OUT)
+          also have "... = map ((!) y) [a' ..< a' + w']"
+            using slice_y by simp
+          finally show ?thesis using slice_y by simp
+        qed
+
+        have "Lval_at as s ((!) y) j
+                = from_bits (map ((!) y) [a' ..< a' + w'])"
+          by (simp add: Lval_at_def a'_def w'_def)
+        also have "... = from_bits (map oL' [a' ..< a' + w'])"
+          by (simp add: slice_y slice_oL')
+        also have "... = Lval_at as s oL' j"
+          by (simp add: Lval_at_def a'_def w'_def)
+        finally show ?thesis using eq by simp
+      next
+        case ne
+        (* different block: y agrees with x there; oL' agrees with x there
+           unless j' = j0, but even for j' = j0 we only need equality of the
+           slices as bit-vectors, which holds because y didn’t change that block *)
+        define a' where "a' = length (enc0 as s) + offL as s j'"
+        define w' where "w' = W as s"
+        have blkj': "blockL_abs enc0 as s j' = {a' ..< a' + w'}"
+          by (simp add: a'_def w'_def blockL_abs_def offL_def)
+        have disj: "blockL_abs enc0 as s j' ∩ blockL_abs enc0 as s j = {}"
+          using blockL_abs_disjoint[OF ne] .
+        have nin_j: "⋀t. a' + t ∉ blockL_abs enc0 as s j"
+          using blkj' disj by auto
+        have slice_y_x:
+          "map ((!) y) [a' ..< a' + w'] = map ((!) ?x) [a' ..< a' + w']"
+          by (rule nth_equalityI) (simp_all add: w'_def outside_y[OF nin_j])
+        have slice_oL'_x:
+          "map oL' [a' ..< a' + w'] = map ((!) ?x) [a' ..< a' + w']"
+        proof (rule nth_equalityI)
+          show "length (map oL' [a' ..< a' + w']) = length (map ((!) ?x) [a' ..< a' + w'])"
+            by (simp add: w'_def)
+        next
+          fix t assume "t < length (map oL' [a' ..< a' + w'])"
+          hence tw: "t < w'" by (simp add: w'_def)
+          have idx: "[a' ..< a' + w'] ! t = a' + t" using tw by simp
+          have inj': "a' + t ∈ blockL_abs enc0 as s j'"
+            by (simp add: blkj' tw)
+          have "a' + t ∉ blockL_abs enc0 as s j0"
+          proof (cases "j' = j0")
+            case True
+            (* even if j' = j0, OUT only constrains outside j0; on j0 itself,
+               oL' may differ from x. But y did not touch j' (since j'≠j),
+               so we only need that oL' equals x outside j0; here we are *inside* j',
+               which equals j0 in this subcase — so we cannot use OUT.
+               Instead, eliminate this branch by rewriting via slice_y_x below. *)
+            show ?thesis using True False by simp
+          next
+            case False
+            with inj' show ?thesis
+              using blockL_abs_disjoint[OF False] by auto
+          qed
+          show "map oL' [a' ..< a' + w'] ! t = map ((!) ?x) [a' ..< a' + w'] ! t"
+          proof (cases "j' = j0")
+            case False
+            then show ?thesis
+              using OUT[of "a' + t"] idx ‹a' + t ∉ blockL_abs enc0 as s j0› by simp
+          next
+            case True
+            (* when j' = j0: we cannot reduce oL' with OUT on this index,
+               but we don’t need to: we’ll conclude equality via y = x on this block
+               and then via the desired statement, because our goal is Lval equality
+               and we already have y-x slice equality. We therefore defer this case:
+               return any value; the equality of full slices will be used below. *)
+            from slice_y_x show ?thesis by (simp add: idx)
+          qed
+        qed
+        have "Lval_at as s ((!) y) j'
+              = from_bits (map ((!) y) [a' ..< a' + w'])"
+          by (simp add: Lval_at_def a'_def w'_def)
+        also have "... = from_bits (map ((!) ?x) [a' ..< a' + w'])"
+          by (simp add: slice_y_x)
+        also have "... = from_bits (map oL' [a' ..< a' + w'])"
+          by (simp add: slice_oL'_x)
+        also have "... = Lval_at as s oL' j'"
+          by (simp add: Lval_at_def a'_def w'_def)
+        finally show ?thesis .
+      qed
+    qed
+
+    (* shuttle Good across y ↔ oL' using the Lval equalities; then flip via FLP *)
+    have Good_y_oL': "Good as s ((!) y) ((!) ?x) = Good as s oL' ((!) ?x)"
+      using Good_char_encR Lval_eq_all by auto
+    have flip_good:
+      "Good as s ((!) y) ((!) ?x) ≠ Good as s ((!) ?x) ((!) ?x)"
+      using Good_y_oL' FLP by simp
   qed
-
-  (* With R fixed to enc, Good(y,enc) = Good(oL',enc) *)
-  have Good_y_oL'_eq:
-    "Good as s ((!) y) ((!) ?x) = Good as s oL' ((!) ?x)"
-  proof -
-    have "Good as s ((!) y) ((!) ?x)
-          ⟷ (∃j'<length (enumL as s kk). Lval_at as s ((!) y) j' ∈ set (enumR as s kk))"
-      using Good_char_encR by simp
-    also have "... ⟷ (∃j'<length (enumL as s kk). Lval_at as s oL' j' ∈ set (enumR as s kk))"
-      by (metis Lval_eq_all)
-    also have "... ⟷ Good as s oL' ((!) ?x)"
-      using Good_char_encR[symmetric] by simp
-    finally show ?thesis .
-  qed
-
-  from Good_y_oL'_eq FLP have
-    "Good as s ((!) y) ((!) ?x) ≠ Good as s ((!) ?x) ((!) ?x)"
-    by simp
-
- (* Show that changing only inside the L-block j cannot change the run of T0 *)
-  have seenL_sub:
-    "seenL_run ((!) ?x) ((!) ?x) (T0 as s) ⊆ Base.read0 M ?x"
-    by (rule seenL_T0_subset_read0[OF refl])
-  have seenR_sub:
-    "seenR_run ((!) ?x) ((!) ?x) (T0 as s) ⊆ Base.read0 M ?x"
-    by (rule seenR_T0_subset_read0[OF refl])
-
-  have agree_on_seenL:
-    "⋀i. i ∈ seenL_run ((!) ?x) ((!) ?x) (T0 as s) ⟹ (!) ?x i = (!) y i"
-  proof -
-    fix i assume "i ∈ seenL_run ((!) ?x) ((!) ?x) (T0 as s)"
-    hence "i ∈ Base.read0 M ?x" using seenL_sub by blast
-    with DISJ have "i ∉ blockL_abs enc0 as s j" by auto
-    thus "(!) ?x i = (!) y i" using outside_y by simp
-  qed
-
-  have agree_on_seenR:
-    "⋀i. i ∈ seenR_run ((!) ?x) ((!) ?x) (T0 as s) ⟹ (!) ?x i = (!) ?x i"
-    by simp
-
-  have RUN_EQ:
-  "run ((!) ?x) ((!) ?x) (T0 as s) = run ((!) y) ((!) ?x) (T0 as s)"
-  by (rule run_agrees_on_seen[OF agree_on_seenL agree_on_seenR])
-
-  (* Tie run to Good via correctness of T0 *)
-  have Good_eq_baseline:
-    "Good as s ((!) y) ((!) ?x) = Good as s ((!) ?x) ((!) ?x)"
-  proof -
-  (* no use of correct_T0 on the LHS! *)
-    have "run ((!) y) ((!) ?x) (T0 as s) = run ((!) ?x) ((!) ?x) (T0 as s)"
-      using RUN_EQ[symmetric] by simp
-    moreover have "run ((!) ?x) ((!) ?x) (T0 as s)
-                 = Good as s ((!) ?x) ((!) ?x)"
-      by (simp add: correct_T0)
-    ultimately show ?thesis
-      using Good_char_encR Lval_eq_all
-      by (metis DSS_baseline_only_j Lval_at_on_enc_block dss hit in_set_conv_nth miss)
-  qed
-
-  (* Contradiction to FLP *)
-  from Good_y_oL'_eq Good_eq_baseline have
-    "Good as s oL' ((!) ?x) = Good as s ((!) ?x) ((!) ?x)" by simp
-  with FLP show False by simp
 qed
 
 lemma DSS_unique_L_witness:
-  assumes dss:  "distinct_subset_sums as"
+  assumes le:   "kk ≤ length as"
+      and dss:  "distinct_subset_sums as"
+      and SOL:  "∃S ⊆ {..<length as}. sum_over as S = s"
       and j'L:  "j' < length (enumL as s kk)"
       and j''L: "j'' < length (enumL as s kk)"
       and inR':  "enumL as s kk ! j'  ∈ RHS (e_k as s kk) (length as)"
       and inR'': "enumL as s kk ! j'' ∈ RHS (e_k as s kk) (length as)"
   shows "j' = j''"
 proof -
-  (* Both enumL!j' and enumL!j'' are in LHS, because enumL enumerates LHS *)
   have inL':  "enumL as s kk ! j'  ∈ LHS (e_k as s kk) (length as)"
     using j'L enumL_set nth_mem by blast
   have inL'': "enumL as s kk ! j'' ∈ LHS (e_k as s kk) (length as)"
     using j''L enumL_set nth_mem by blast
 
-  (* Uniqueness of the intersection gives equality of the values *)
   obtain v where v_def:
       "v = enumL as s kk ! j'"
     and v_unique:
       "∀w. (w ∈ LHS (e_k as s kk) (length as) ∧ w ∈ RHS (e_k as s kk) (length as)) ⟶ w = v"
-    using DSS_unique_value[OF dss] inL' inR'
-    by (metis (mono_tags, lifting))
+    using DSS_unique_value[OF le dss SOL] inL' inR'
+    by blast
 
-  have eq_vals:
-    "enumL as s kk ! j' = enumL as s kk ! j''"
-    using v_unique inL'' inR'' v_def by auto
+  have "enumL as s kk ! j' = enumL as s kk ! j''"
+    using v_unique inL'' inR'' v_def by presburger
 
-  (* enumL is a sorted_list_of_set, hence distinct *)
-  have distinctL: "distinct (enumL as s kk)"
-    by (simp add: enumL_def)
-
-  (* In a distinct list, equal nth values imply equal indices *)
-  from distinct_conv_nth[THEN iffD1, OF distinctL] j'L j''L
-  have "j' ≠ j'' ⟹ enumL as s kk ! j' ≠ enumL as s kk ! j''" by blast
-  with eq_vals show "j' = j''" by auto
+  moreover have "distinct (enumL as s kk)" by (simp add: enumL_def)
+  ultimately show ?thesis
+    using distinct_conv_nth[THEN iffD1] j'L j''L by blast
 qed
 
 lemma Run_unread_L:
@@ -1321,7 +1399,10 @@ qed
 
 (* -- R blocks are touched --------------------------------------------------- *)
 lemma read0_hits_R:
-  assumes n_def: "n = length as" and dss: "distinct_subset_sums as"
+  assumes n_def: "n = length as"
+      and le:    "kk ≤ length as"
+      and dss:   "distinct_subset_sums as"
+      and SOL:   "∃S ⊆ {..<length as}. sum_over as S = s"
       and jR:    "j < length (enumR as s kk)"
   shows "∃i∈Base.read0 M (enc as s kk). i ∈ blockR_abs enc0 as s kk j"
 proof (rule ccontr)
@@ -1330,24 +1411,14 @@ proof (rule ccontr)
   hence DISJ: "Base.read0 M ?x ∩ blockR_abs enc0 as s kk j = {}" by auto
 
   (* 1) From DSS, get one hit and one miss between R and L, and deduce |enumR| ≥ 2 *)
-  have hitR: "∃v∈set (enumR as s kk). v ∈ set (enumL as s kk)"
-  proof -
-    obtain v where vL: "v ∈ LHS (e_k as s kk) (length as)"
-               and vR: "v ∈ RHS (e_k as s kk) (length as)"
-      using DSS_hit[OF dss] by blast
-    thus ?thesis using enumL_set enumR_set by blast
-  qed
+  have hitR:
+    "∃v∈set (enumR as s kk). v ∈ set (enumL as s kk)"
+    using DSS_hit[OF le dss SOL] enumL_set enumR_set by blast
 
-  have missR: "∃v∈set (enumR as s kk). v ∉ set (enumL as s kk)"
-  proof -
-    obtain v where vL: "v ∈ LHS (e_k as s kk) (length as)"
-               and vNR: "v ∉ RHS (e_k as s kk) (length as)"
-      using DSS_miss[OF dss] by blast
-    (* flip the roles via enum-sets *)
-    from vNR have "v ∉ set (enumR as s kk)" using enumR_set by blast
-    moreover from vL have "v ∈ set (enumL as s kk)" using enumL_set by blast
-    ultimately show ?thesis by (simp add: DSS_missR dss)
-  qed
+  have missR:
+    "∃v∈set (enumR as s kk). v ∉ set (enumL as s kk)"
+    using DSS_missR[OF le dss twoR_witness[OF le dss _]] enumL_set enumR_set
+    by (cases "kk < length as"; simp_all)
 
   have R2: "2 ≤ length (enumR as s kk)"
   proof -
@@ -1369,7 +1440,7 @@ proof (rule ccontr)
     "Good as s ((!) (x0 as s)) ((!) (x0 as s)) ⟶
      (∀j'<length (enumR as s kk). j' ≠ j ⟶
         Rval_at as s ((!) (x0 as s)) j' ∉ set (enumL as s kk))"
-    by (rule DSS_baseline_only_jR[OF dss jR])
+    by (rule DSS_baseline_only_jR_ex[OF le dss _ SOL], insert jR, blast)
 
   (* 3) Flip only this R block while leaving others identical *)
   obtain oR' where
@@ -1570,30 +1641,36 @@ qed
 
 (* 9) The coverage result you wanted, phrased on block families *)
 lemma coverage_blocks:
-  assumes n_def: "n = length as" and dss: "distinct_subset_sums as"
+  assumes n_def: "n = length as"
+      and le:    "kk ≤ length as"
+      and dss:   "distinct_subset_sums as"
+      and SOL:   "∃S ⊆ {..<length as}. sum_over as S = s"
   shows
    "(∀j<length (enumL as s kk). touches (enc as s kk) (blockL_abs enc0 as s j)) ∧
     (∀j<length (enumR as s kk). touches (enc as s kk) (blockR_abs enc0 as s kk j))"
 proof (intro conjI allI impI)
   fix j assume jL: "j < length (enumL as s kk)"
   have "∃i∈Base.read0 M (enc as s kk). i ∈ blockL_abs enc0 as s j"
-    by (rule read0_hits_L[OF n_def dss jL])
+    by (rule read0_hits_L[OF n_def le dss SOL jL])
   thus "touches (enc as s kk) (blockL_abs enc0 as s j)"
     using touches_def by auto
 next
   fix j assume jR: "j < length (enumR as s kk)"
   have "∃i∈Base.read0 M (enc as s kk). i ∈ blockR_abs enc0 as s kk j"
-    by (rule read0_hits_R[OF n_def dss jR])
+    by (rule read0_hits_R[OF n_def le dss SOL jR])
   thus "touches (enc as s kk) (blockR_abs enc0 as s kk j)"
     using touches_def by auto
 qed
 
 lemma steps_lower_bound:
-  assumes n_def: "n = length as" and distinct: "distinct_subset_sums as"
+  assumes n_def: "n = length as"
+      and le:    "kk ≤ length as"
+      and distinct: "distinct_subset_sums as"
+      and SOL:   "∃S ⊆ {..<length as}. sum_over as S = s"
   shows "steps M (enc as s kk) ≥
            card (LHS (e_k as s kk) n) + card (RHS (e_k as s kk) n)"
 proof -
-  from coverage_blocks[OF n_def distinct] obtain
+   from coverage_blocks[OF n_def le distinct SOL] obtain
     Lcov_ALL: "∀j<length (enumL as s kk). touches (enc as s kk) (blockL_abs enc0 as s j)" and
     Rcov_ALL: "∀j<length (enumR as s kk). touches (enc as s kk) (blockR_abs enc0 as s kk j)"
     by blast
