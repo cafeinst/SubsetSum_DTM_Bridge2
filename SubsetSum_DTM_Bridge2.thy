@@ -807,6 +807,149 @@ proof -
   with eq show ?thesis by simp
 qed
 
+lemma steps_lower_bound:
+  assumes n_def: "n = length as" 
+      and distinct: "distinct_subset_sums as"
+      and n_ge2: "n ≥ 2"
+      and kk_bounds: "1 ≤ kk" "kk < n"
+      and as_is_pow2: "as = pow2_list n"
+      and s_is_pow2: "s = pow2_target n"
+  shows "steps M (enc as s kk) ≥
+           card (LHS (e_k as s kk) n) + card (RHS (e_k as s kk) n)"
+proof -
+  (* Prove hit and miss using pow2 lemmas *)
+  have hit: "∃v ∈ set (enumL as s kk). v ∈ set (enumR as s kk)"
+    using pow2_hit[OF n_ge2 kk_bounds] as_is_pow2 s_is_pow2 by simp
+  
+  have miss: "∃v ∈ set (enumL as s kk). v ∉ set (enumR as s kk)"
+    using pow2_miss[OF n_ge2 kk_bounds] as_is_pow2 s_is_pow2 by simp
+
+  (* Coverage: every block is touched *)
+  from coverage_blocks[OF n_ge2 kk_bounds distinct n_def[symmetric] hit miss]  (* ADD hit miss HERE *)
+  have Lcov: "∀j<length (enumL as s kk). 
+                Base.read0 M (enc as s kk) ∩ blockL_abs enc0 as s j ≠ {}"
+   and Rcov: "∀j<length (enumR as s kk). 
+                Base.read0 M (enc as s kk) ∩ blockR_abs enc0 as s kk j ≠ {}"
+    by blast+
+  
+  (* Pick representatives from each block *)
+  define pickL where "pickL j = (SOME i. i ∈ Base.read0 M (enc as s kk) ∧ 
+                                          i ∈ blockL_abs enc0 as s j)" for j
+  define pickR where "pickR j = (SOME i. i ∈ Base.read0 M (enc as s kk) ∧ 
+                                          i ∈ blockR_abs enc0 as s kk j)" for j
+  
+  (* These are well-defined by coverage *)
+  have pickL_props: "∀j < length (enumL as s kk).
+                     pickL j ∈ Base.read0 M (enc as s kk) ∧
+                     pickL j ∈ blockL_abs enc0 as s j"
+  proof (intro allI impI)
+    fix j assume j_bound: "j < length (enumL as s kk)"
+    from Lcov j_bound have nonempty: "Base.read0 M (enc as s kk) ∩ blockL_abs enc0 as s j ≠ {}" 
+      by blast
+    then obtain i where "i ∈ Base.read0 M (enc as s kk) ∧ i ∈ blockL_abs enc0 as s j" 
+      by blast
+    hence "∃i. i ∈ Base.read0 M (enc as s kk) ∧ i ∈ blockL_abs enc0 as s j" 
+      by blast
+    thus "pickL j ∈ Base.read0 M (enc as s kk) ∧ pickL j ∈ blockL_abs enc0 as s j"
+      unfolding pickL_def by (rule someI_ex)
+  qed
+  
+  have pickR_props: "∀j < length (enumR as s kk).
+                     pickR j ∈ Base.read0 M (enc as s kk) ∧
+                     pickR j ∈ blockR_abs enc0 as s kk j"
+  proof (intro allI impI)
+    fix j assume j_bound: "j < length (enumR as s kk)"
+    from Rcov j_bound have nonempty: "Base.read0 M (enc as s kk) ∩ blockR_abs enc0 as s kk j ≠ {}" 
+      by blast
+    then obtain i where "i ∈ Base.read0 M (enc as s kk) ∧ i ∈ blockR_abs enc0 as s kk j" 
+      by blast
+    hence "∃i. i ∈ Base.read0 M (enc as s kk) ∧ i ∈ blockR_abs enc0 as s kk j" 
+      by blast
+    thus "pickR j ∈ Base.read0 M (enc as s kk) ∧ pickR j ∈ blockR_abs enc0 as s kk j"
+      unfolding pickR_def by (rule someI_ex)
+  qed
+  
+  (* Representatives are injective (different blocks → different positions) *)
+  have inj_L: "inj_on pickL {..<length (enumL as s kk)}"
+  proof (rule inj_onI)
+    fix j1 j2
+    assume j1: "j1 ∈ {..<length (enumL as s kk)}" and 
+         j2: "j2 ∈ {..<length (enumL as s kk)}" and
+         eq: "pickL j1 = pickL j2"
+    have "pickL j1 ∈ blockL_abs enc0 as s j1" using pickL_props j1 by simp
+    moreover have "pickL j2 ∈ blockL_abs enc0 as s j2" using pickL_props j2 by simp
+    ultimately have "blockL_abs enc0 as s j1 ∩ blockL_abs enc0 as s j2 ≠ {}"
+      using eq by fastforce
+    thus "j1 = j2" using blockL_abs_disjoint by blast
+  qed
+
+  have inj_R: "inj_on pickR {..<length (enumR as s kk)}"
+  proof (rule inj_onI)
+    fix j1 j2
+    assume j1: "j1 ∈ {..<length (enumR as s kk)}" and
+         j2: "j2 ∈ {..<length (enumR as s kk)}" and
+         eq: "pickR j1 = pickR j2"
+    have "pickR j1 ∈ blockR_abs enc0 as s kk j1" using pickR_props j1 by simp
+    moreover have "pickR j2 ∈ blockR_abs enc0 as s kk j2" using pickR_props j2 by simp
+    ultimately have "blockR_abs enc0 as s kk j1 ∩ blockR_abs enc0 as s kk j2 ≠ {}"
+      using eq by fastforce
+    thus "j1 = j2" using blockR_abs_disjoint by blast
+  qed
+  
+  (* L and R representatives are disjoint *)
+  have disj: "pickL ` {..<length (enumL as s kk)} ∩ 
+              pickR ` {..<length (enumR as s kk)} = {}"
+  proof
+    show "pickL ` {..<length (enumL as s kk)} ∩ 
+          pickR ` {..<length (enumR as s kk)} ⊆ {}"
+    proof
+      fix i assume "i ∈ pickL ` {..<length (enumL as s kk)} ∩ 
+                          pickR ` {..<length (enumR as s kk)}"
+      then obtain jL jR where
+        jL: "jL < length (enumL as s kk)" and iL: "i = pickL jL" and
+        jR: "jR < length (enumR as s kk)" and iR: "i = pickR jR" by auto
+      have "i ∈ blockL_abs enc0 as s jL" using pickL_props jL iL by simp
+      moreover have "i ∈ blockR_abs enc0 as s kk jR" using pickR_props jR iR by simp
+      ultimately have "blockL_abs enc0 as s jL ∩ blockR_abs enc0 as s kk jR ≠ {}"
+        by blast
+      thus "i ∈ {}" using blockL_abs_blockR_abs_disjoint[OF jL] by blast
+    qed
+  qed simp
+  
+  (* Count: |pickL| + |pickR| ≤ |read0| ≤ steps *)
+  have "card {..<length (enumL as s kk)} + card {..<length (enumR as s kk)} ≤ 
+        card (Base.read0 M (enc as s kk))"
+  proof -
+    have "card (pickL ` {..<length (enumL as s kk)} ∪ 
+                pickR ` {..<length (enumR as s kk)}) ≤ 
+          card (Base.read0 M (enc as s kk))"
+      by (intro card_mono) (auto simp: pickL_props pickR_props)
+    moreover have "card (pickL ` {..<length (enumL as s kk)} ∪ 
+                         pickR ` {..<length (enumR as s kk)}) =
+                   card (pickL ` {..<length (enumL as s kk)}) + 
+                   card (pickR ` {..<length (enumR as s kk)})"
+      using disj by (simp add: card_Un_disjoint)
+    moreover have "card (pickL ` {..<length (enumL as s kk)}) = 
+                   card {..<length (enumL as s kk)}"
+      using card_image[OF inj_L] by simp
+    moreover have "card (pickR ` {..<length (enumR as s kk)}) = 
+                   card {..<length (enumR as s kk)}"
+      using card_image[OF inj_R] by simp
+    ultimately show ?thesis by simp
+  qed
+  
+  moreover have "card (Base.read0 M (enc as s kk)) ≤ steps M (enc as s kk)"
+    by (rule Base.card_read0_le_steps)
+  
+  moreover have "card {..<length (enumL as s kk)} = card (LHS (e_k as s kk) n)"
+    by (simp add: enumL_def n_def)
+  
+  moreover have "card {..<length (enumR as s kk)} = card (RHS (e_k as s kk) n)"
+    by (simp add: enumR_def n_def)
+  
+  ultimately show ?thesis by simp
+qed
+
 end  (* context Coverage_TM *)
 
 end  (* theory *)
