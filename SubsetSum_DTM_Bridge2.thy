@@ -62,7 +62,7 @@ qed
 (* PART 2: Hard Instance Construction for pow2_list                        *)
 (* ========================================================================= *)
 
-(* For the pow2_list family, we'll prove hit, miss, and baseline_only_j
+(* For the pow2_list family, we'll prove hit, miss
    for a SPECIFIC choice of target s *)
 
 definition pow2_target :: "nat ⇒ int" where
@@ -676,12 +676,12 @@ proof -
     by (simp add: enumL_def as_def pow2_list_def)
   moreover have "set (enumR as s kk) = RHS (e_k as s kk) n"
     by (simp add: enumR_def as_def pow2_list_def)
-  ultimately have "set (enumL as s kk) ∩ set (enumR as s kk) = 
-                   LHS (e_k as s kk) n ∩ RHS (e_k as s kk) n"
+  ultimately have eq: "set (enumL as s kk) ∩ set (enumR as s kk) = 
+                       LHS (e_k as s kk) n ∩ RHS (e_k as s kk) n"
     by simp
   
-  also have "... = {(2::int)^kk - 1}"
-  proof (intro set_eqI iffI)
+  have "LHS (e_k as s kk) n ∩ RHS (e_k as s kk) n = {(2::int)^kk - 1}"
+  proof (intro equalityI subsetI)
     fix v assume "v ∈ LHS (e_k as s kk) n ∩ RHS (e_k as s kk) n"
     hence v_LHS: "v ∈ LHS (e_k as s kk) n" and v_RHS: "v ∈ RHS (e_k as s kk) n"
       by blast+
@@ -692,308 +692,119 @@ proof -
     from v_RHS RHS_char obtain SR where SR_sub: "SR ⊆ {kk..<n}" 
       and v_R: "v = (2::int)^(n-1) - 1 - (∑i∈SR. (2::int)^i)" by blast
     
-    (* Combine the two equations *)
-    have "(∑i∈SL. (2::int)^i) = (2::int)^(n-1) - 1 - (∑i∈SR. (2::int)^i)"
+    have eq_sum: "(∑i∈SL. (2::int)^i) + (∑i∈SR. (2::int)^i) = (2::int)^(n-1) - 1"
       using v_L v_R by simp
-    hence eq_sum: "(∑i∈SL. (2::int)^i) + (∑i∈SR. (2::int)^i) = (2::int)^(n-1) - 1"
-      by simp
     
-    (* Key insight: (2^(n-1) - 1) = sum of all bits 0..(n-2) *)
-    (* And SL ∪ SR gives us this sum, with SL and SR disjoint *)
+    have "finite SL" using SL_sub by (rule finite_subset) simp
+    have "finite SR" using SR_sub by (rule finite_subset) simp
     
-    (* The ONLY way to make 2^(n-1) - 1 is to take ALL positions 0..(n-2) *)
-    have "(2::int)^(n-1) - 1 = (∑i<n-1. (2::int)^i)"
-      by (simp add: geometric_sum_pow2)
+    (* Prove n-1 ∉ SR *)
+    have "n - 1 ∉ SR"
+    proof
+      assume "n - 1 ∈ SR"
+      then have "2^(n-1) ≤ (∑i∈SR. (2::int)^i)"
+        using `finite SR` by (intro member_le_sum) auto
+      with v_R have "v ≤ -1" by linarith
+      moreover have "v ≥ 0" using v_L `finite SL` by (auto intro: sum_nonneg)
+      ultimately show False by simp
+    qed
     
-    (* So SL ∪ SR = {0..<n-1} *)
-    (* But SL ⊆ {0..<kk} and SR ⊆ {kk..<n} are disjoint *)
-    (* So we need SL = {0..<kk} and SR = {kk..<n-1} *)
-    
-    have SL_eq: "SL = {0..<kk}"
+    hence SR_sub': "SR ⊆ {kk..<n-1}"
     proof -
-      (* We have: SL ⊆ {0..<kk}, SR ⊆ {kk..<n}, disjoint, and the sum equals 2^(n-1) - 1 *)
-      have union_sum: "(∑i∈SL ∪ SR. (2::int)^i) = 2^(n-1) - 1"
-      proof -
-        have "SL ∩ SR = {}"
-        proof (rule equals0I)
-          fix x assume "x ∈ SL ∩ SR"
-          hence "x ∈ SL" and "x ∈ SR" by auto
-          hence "x < kk" using SL_sub by auto
-          moreover have "kk ≤ x" using `x ∈ SR` SR_sub by auto
-          ultimately show False by simp
-        qed
-        hence "(∑i∈SL ∪ SR. (2::int)^i) = (∑i∈SL. 2^i) + (∑i∈SR. 2^i)"
-        proof (intro sum.union_disjoint)
-          show "SL ∩ SR = {}" using `SL ∩ SR = {}` .
-          show "finite SL" using SL_sub by (rule finite_subset) simp
-          show "finite SR" using SR_sub by (rule finite_subset) simp
-        qed
-        also have "... = 2^(n-1) - 1"
-          using eq_sum by simp
-        finally show ?thesis .
-      qed
-      
-      (* Also: {0..<n-1} sums to 2^(n-1) - 1 *)
-      have full_sum: "(∑i∈{0..<n-1}. (2::int)^i) = 2^(n-1) - 1"
-        using geometric_sum_pow2[of "n-1"] by (simp add: lessThan_atLeast0)
-      
-      (* By uniqueness of binary representation: *)
-      have "finite SL" using SL_sub by (rule finite_subset) simp
-      moreover have "finite SR" using SR_sub by (rule finite_subset) simp
-      ultimately have "finite (SL ∪ SR)" by simp
-      
-      have "SL ∪ SR = {0..<n-1}"
-      proof (rule pow2_sum_unique)
-        show "finite (SL ∪ SR)" using `finite (SL ∪ SR)` .
-        show "finite {0..<n-1}" by simp
-
-        show "SL ∪ SR ⊆ {..<n-1}"
-          using SL_sub SR_sub assms(3) by auto
-        show "{0..<n-1} ⊆ {..<n-1}" by auto
-        show "(∑i∈SL ∪ SR. (2::int)^i) = (∑i∈{0..<n-1}. (2::int)^i)"
-          using union_sum full_sum by simp
-      qed
-      
-      (* Since SL and SR are disjoint and cover {0..<n-1}, and SL ⊆ {0..<kk}: *)
-      thus ?thesis
-      proof -
-        have "SL ∩ SR = {}"
-          using SL_sub SR_sub by auto
-        have "SL ∪ SR = {0..<n-1}" using ‹SL ∪ SR = {0..<n-1}› .
-        have "{0..<n-1} = {0..<kk} ∪ {kk..<n-1}"
-          using assms(3) by auto
-        hence "SL ∪ SR = {0..<kk} ∪ {kk..<n-1}" using ‹SL ∪ SR = {0..<n-1}› by simp
-        moreover have "SL ⊆ {0..<kk}" using SL_sub by simp
-        moreover have "SR ⊆ {kk..<n-1}"
-          using SR_sub ‹SL ∪ SR = {0..<kk} ∪ {kk..<n-1}› ‹SL ∩ SR = {}› by auto
-        moreover have "{0..<kk} ∩ {kk..<n-1} = {}" by auto
-        ultimately show "SL = {0..<kk}"
-          using ‹SL ∩ SR = {}› by auto
+      show "SR ⊆ {kk..<n-1}"
+      proof
+        fix x assume "x ∈ SR"
+        hence "kk ≤ x" and "x < n" using SR_sub by auto
+        moreover have "x ≠ n - 1" using `x ∈ SR` `n - 1 ∉ SR` by auto
+        ultimately show "x ∈ {kk..<n-1}" by auto
       qed
     qed
     
-    hence "v = (∑i∈{0..<kk}. (2::int)^i)"
-      using v_L by simp
-    also have "... = (∑i<kk. (2::int)^i)"
-      by (simp add: lessThan_atLeast0)
-    also have "... = (2::int)^kk - 1"
-      by (rule geometric_sum_pow2)
-    finally show "v = (2::int)^kk - 1" .
-  next
-    fix v assume "v = (2::int)^kk - 1"
+    (* Union equals target *)
+    have "SL ∩ SR = {}"
+    proof (rule equals0I)
+      fix x assume "x ∈ SL ∩ SR"
+      hence "x ∈ SL" and "x ∈ SR" by auto
+      hence "x < kk" using SL_sub by auto
+      moreover have "kk ≤ x" using `x ∈ SR` SR_sub by auto
+      ultimately show False by simp
+    qed
+    hence union_sum: "(∑i∈SL ∪ SR. (2::int)^i) = 2^(n-1) - 1"
+      using `finite SL` `finite SR` eq_sum by (simp add: sum.union_disjoint)
     
-    (* Show v ∈ LHS *)
+    have full_sum: "(∑i∈{0..<n-1}. (2::int)^i) = 2^(n-1) - 1"
+      using geometric_sum_pow2[of "n-1"] by (simp add: lessThan_atLeast0)
+    
+    (* By uniqueness *)
+    have "SL ∪ SR = {0..<n-1}"
+    proof (rule pow2_sum_unique)
+      show "finite (SL ∪ SR)" using `finite SL` `finite SR` by simp
+      show "finite {0..<n-1}" by simp
+      show "SL ∪ SR ⊆ {..<n-1}"
+      proof
+        fix x assume "x ∈ SL ∪ SR"
+        thus "x ∈ {..<n-1}"
+        proof
+          assume "x ∈ SL"
+          hence "x < kk" using SL_sub by auto
+          also have "kk ≤ n - 1" using assms(3) by simp
+          finally show "x ∈ {..<n-1}" by simp
+        next
+          assume "x ∈ SR"
+          thus "x ∈ {..<n-1}" using SR_sub' by auto
+        qed
+      qed
+      show "{0..<n-1} ⊆ {..<n-1}" by auto
+      show "(∑i∈SL ∪ SR. (2::int)^i) = (∑i∈{0..<n-1}. (2::int)^i)"
+        using union_sum full_sum by simp
+    qed
+    
+    have "{0..<n-1} = {0..<kk} ∪ {kk..<n-1}" using assms(3) by auto
+    with `SL ∪ SR = {0..<n-1}` have "SL ∪ SR = {0..<kk} ∪ {kk..<n-1}" by simp
+    moreover have "{0..<kk} ∩ {kk..<n-1} = {}" by auto
+    ultimately have "SL = {0..<kk}"
+      using SL_sub SR_sub' `SL ∩ SR = {}` by auto
+    
+    hence "v = (∑i∈{0..<kk}. (2::int)^i)" using v_L by simp
+    also have "... = (∑i<kk. (2::int)^i)" by (simp add: lessThan_atLeast0)
+    also have "... = (2::int)^kk - 1" by (rule geometric_sum_pow2)
+    finally show "v ∈ {(2::int)^kk - 1}" by simp
+  next
+    fix v assume "v ∈ {(2::int)^kk - 1}"
+    hence v_eq: "v = (2::int)^kk - 1" by simp
+    
     have "v ∈ LHS (e_k as s kk) n"
     proof -
-      have "v = (∑i∈{0..<kk}. (2::int)^i)"
-        using ‹v = (2::int)^kk - 1› by (simp add: geometric_sum_pow2 lessThan_atLeast0)
+      have "(∑i∈{0..<kk}. (2::int)^i) = (∑i<kk. (2::int)^i)"
+        by (simp add: lessThan_atLeast0)
+      also have "... = 2^kk - 1" by (rule geometric_sum_pow2)
+      finally have "v = (∑i∈{0..<kk}. (2::int)^i)" using v_eq by simp
       with LHS_char show ?thesis by blast
     qed
     
-    (* Show v ∈ RHS *)
     moreover have "v ∈ RHS (e_k as s kk) n"
     proof -
-      have "v = (2::int)^(n-1) - 1 - (∑i∈{kk..<n-1}. (2::int)^i)"
+      have "(2::int)^(n-1) - 1 = (∑i<n-1. (2::int)^i)"
+        using geometric_sum_pow2[of "n-1"] by simp
+      also have "... = (∑i∈{0..<kk}. (2::int)^i) + (∑i∈{kk..<n-1}. (2::int)^i)"
       proof -
-        have "(2::int)^(n-1) - 1 = (∑i<n-1. (2::int)^i)"
-          by (rule geometric_sum_pow2)
-        also have "... = (∑i∈{0..<kk}. (2::int)^i) + (∑i∈{kk..<n-1}. (2::int)^i)"
-        proof -
-          have "{0..<n-1} = {0..<kk} ∪ {kk..<n-1}"
-            using assms(3) by auto
-          hence "(∑i<n-1. (2::int)^i) = (∑i∈{0..<kk} ∪ {kk..<n-1}. 2^i)"
-            by (simp add: lessThan_atLeast0)
-          also have "... = (∑i∈{0..<kk}. 2^i) + (∑i∈{kk..<n-1}. 2^i)"
-            by (rule sum.union_disjoint) auto
-          finally show ?thesis .
-        qed
-        finally have "(2::int)^(n-1) - 1 - (∑i∈{kk..<n-1}. (2::int)^i) 
-                    = (∑i∈{0..<kk}. (2::int)^i)"
-          by simp
-        thus ?thesis
-          using ‹v = (2::int)^kk - 1› by (simp add: geometric_sum_pow2 lessThan_atLeast0)
+        have "{0..<n-1} = {0..<kk} ∪ {kk..<n-1}" using assms(3) by auto
+        thus ?thesis by (simp add: lessThan_atLeast0 sum.union_disjoint)
       qed
-      
-      moreover have "{kk..<n-1} ⊆ {kk..<n}"
-        using assms(1) by auto
+      finally have "(2::int)^(n-1) - 1 - (∑i∈{kk..<n-1}. (2::int)^i) = (∑i∈{0..<kk}. (2::int)^i)"
+        by simp
+      also have "(∑i∈{0..<kk}. (2::int)^i) = 2^kk - 1"
+        using geometric_sum_pow2[of kk] by (simp add: lessThan_atLeast0)
+      finally have "v = (2::int)^(n-1) - 1 - (∑i∈{kk..<n-1}. (2::int)^i)"
+        using v_eq by simp
+      moreover have "{kk..<n-1} ⊆ {kk..<n}" using assms(1) by auto
       ultimately show ?thesis using RHS_char by blast
     qed
     
-    ultimately show "v ∈ LHS (e_k as s kk) n ∩ RHS (e_k as s kk) n"
-      by blast
+    ultimately show "v ∈ LHS (e_k as s kk) n ∩ RHS (e_k as s kk) n" by simp
   qed
   
-  finally show ?thesis .
-qed
-
-(* LEMMA: baseline_only_j holds for pow2_list with this target *)
-lemma pow2_baseline_only_j:
-  assumes "n ≥ 2" "1 ≤ kk" "kk < n"
-  defines "as ≡ pow2_list n"
-      and "s ≡ pow2_target n"
-  shows "∀j. good as s ((!) (enc as s kk)) ((!) (enc as s kk)) ⟶
-             (∀j'<length (enumL as s kk). j' ≠ j ⟶
-                Lval_at as s ((!) (enc as s kk)) j' ∉ set (enumR as s kk))"
-proof (intro allI impI)
-  fix j
-  assume good_holds: "good as s ((!) (enc as s kk)) ((!) (enc as s kk))"
-  
-  have len_as: "length as = n"
-    by (simp add: as_def pow2_list_def)
-  
-  (* Key fact: the intersection is exactly {2^kk - 1} *)
-  have intersection_singleton: "set (enumL as s kk) ∩ set (enumR as s kk) = {(2::int)^kk - 1}"
-    using pow2_unique_intersection[OF assms(1-3)] by (simp add: as_def s_def)
-  
-  (* Since the intersection is a singleton, there's exactly one jL with enumL!jL in enumR *)
-  have unique_witness: "∃!jL. jL < length (enumL as s kk) ∧ 
-                              enumL as s kk ! jL ∈ set (enumR as s kk)"
-  proof -
-    have "distinct (enumL as s kk)"
-      by (simp add: enumL_def)
-    moreover have "{v ∈ set (enumL as s kk). v ∈ set (enumR as s kk)} = {(2::int)^kk - 1}"
-      using intersection_singleton by auto
-    ultimately show ?thesis
-      by (metis (mono_tags, lifting) distinct_Ex1 in_set_conv_nth mem_Collect_eq singletonD)
-  qed
-  
-  (* Now show the required property *)
-  show "∀j'<length (enumL as s kk). j' ≠ j ⟶
-        Lval_at as s ((!) (enc as s kk)) j' ∉ set (enumR as s kk)"
-  proof (intro allI impI)
-    fix j'
-    assume j'_bound: "j' < length (enumL as s kk)"
-       and j'_neq: "j' ≠ j"
-    
-    have "Lval_at as s ((!) (enc as s kk)) j' = enumL as s kk ! j'"
-      using Lval_at_on_enc_block[OF j'_bound] by simp
-    
-    (* If j is the unique witness, then j' ≠ j means j' is not a witness *)
-    show "Lval_at as s ((!) (enc as s kk)) j' ∉ set (enumR as s kk)"
-    proof (cases "j < length (enumL as s kk) ∧ enumL as s kk ! j ∈ set (enumR as s kk)")
-      case True
-      (* j is a witness, so by uniqueness, j is THE witness *)
-      then have "j' < length (enumL as s kk) ∧ enumL as s kk ! j' ∈ set (enumR as s kk) ⟹ j' = j"
-        using unique_witness by blast
-      thus ?thesis using j'_neq by auto
-    next  
-      case False
-      (* j is not a witness, so the implication is vacuous *)
-      (* But we assumed good holds, which means there IS a witness *)
-      (* So either j is out of bounds, or enumL!j is not in enumR *)
-      (* In either case, we can't conclude anything about j' from this *)
-      (* We fall back to the intersection singleton property *)
-      show ?thesis
-      proof (rule ccontr)
-        assume "¬ (Lval_at as s ((!) (enc as s kk)) j' ∉ set (enumR as s kk))"
-        hence in_R: "Lval_at as s ((!) (enc as s kk)) j' ∈ set (enumR as s kk)" by simp
-        have "enumL as s kk ! j' ∈ set (enumR as s kk)"
-          using in_R ‹Lval_at as s ((!) (enc as s kk)) j' = enumL as s kk ! j'› by simp
-        moreover have "enumL as s kk ! j' ∈ set (enumL as s kk)"
-          using j'_bound by simp
-        ultimately have "enumL as s kk ! j' ∈ set (enumL as s kk) ∩ set (enumR as s kk)"
-          by simp
-        hence "enumL as s kk ! j' = (2::int)^kk - 1"
-          using intersection_singleton by auto
-        
-        (* So j' is the unique witness *)
-        have "j' < length (enumL as s kk) ∧ enumL as s kk ! j' ∈ set (enumR as s kk)"
-          using j'_bound ‹enumL as s kk ! j' ∈ set (enumR as s kk)› by simp
-        
-        (* Similarly, from good_holds, there exists some witness *)
-        obtain jL jR where
-          jL_bound: "jL < length (enumL as s kk)" and
-          jR_bound: "jR < length (enumR as s kk)" and
-          match: "Lval_at as s ((!) (enc as s kk)) jL = Rval_at as s ((!) (enc as s kk)) jR"
-          using good_holds unfolding good_def by blast
-        
-        have "enumL as s kk ! jL = enumR as s kk ! jR"
-        proof -
-          have "Lval_at as s ((!) (enc as s kk)) jL = enumL as s kk ! jL"
-            using Lval_at_on_enc_block[OF jL_bound] by simp
-          moreover have "Rval_at as s ((!) (enc as s kk)) jR = enumR as s kk ! jR"
-            using Rval_at_on_enc_block[OF jR_bound] by simp
-          ultimately show ?thesis using match by simp
-        qed
-        
-        hence "jL < length (enumL as s kk) ∧ enumL as s kk ! jL ∈ set (enumR as s kk)"
-          using jL_bound jR_bound by auto
-        
-        (* By uniqueness, jL = j' *)
-        hence "jL = j'" using unique_witness
-          using ‹j' < length (enumL as s kk) ∧ enumL as s kk ! j' ∈ set (enumR as s kk)› by blast
-        
-        (* Now, if j < length enumL and enumL!j in enumR, then j = jL = j' by uniqueness *)
-        (* But we have j' ≠ j, so this is a contradiction *)
-        (* The resolution is that j is not a witness (case False) *)
-        (* In that case, j is not the unique witness, so j ≠ j' *)
-        (* Wait, we're already in case False, so this should be fine *)
-        (* Actually, the issue is that when j is not the witness, *)
-        (* the statement is vacuously true because good → False *)
-        (* But we have good_holds, so there must be a witness *)
-        (* That witness is j' (as we just showed) *)
-        (* So j ≠ j' is consistent *)
-        show False
-          using False ‹jL = j'› j'_neq
-          by (metis ‹jL < length (enumL as s kk) ∧ enumL as s kk ! jL ∈ set (enumR as s kk)›)
-      qed
-    qed
-  qed
-qed
-
-(* ========================================================================= *)
-(* PART 3: Package Everything as a Hard Instance                           *)
-(* ========================================================================= *)
-
-lemma pow2_satisfies_all_coverage_conditions:
-  assumes n_ge2: "n ≥ 2"
-      and kk_bounds: "1 ≤ kk" "kk < n"
-  defines "as ≡ pow2_list n"
-      and "s ≡ pow2_target n"
-  shows "length as = n"
-    and "distinct_subset_sums as"
-    and "2 ≤ length (enumL as s kk)"
-    and "2 ≤ length (enumR as s kk)"
-    and "∃v∈set (enumL as s kk). v ∈ set (enumR as s kk)"
-    and "∃v∈set (enumL as s kk). v ∉ set (enumR as s kk)"
-    and "∀j. good as s ((!) (enc as s kk)) ((!) (enc as s kk)) ⟶
-             (∀j'<length (enumL as s kk). j' ≠ j ⟶
-                Lval_at as s ((!) (enc as s kk)) j' ∉ set (enumR as s kk))"
-proof -
-  show "length as = n" by (simp add: as_def pow2_list_def)
-  
-  show "distinct_subset_sums as"
-    by (simp add: as_def distinct_subset_sums_pow2_list)
-  
-  show "2 ≤ length (enumL as s kk)"
-  proof -
-    have "length as = n" by (simp add: as_def pow2_list_def)
-    moreover have "kk ≥ 1" using kk_bounds by simp
-    moreover have "kk ≤ n" using kk_bounds by simp
-    moreover have "distinct_subset_sums as" by (simp add: as_def distinct_subset_sums_pow2_list)
-    ultimately show ?thesis
-      using enumL_length_geq_two by blast
-  qed
-  
-  show "2 ≤ length (enumR as s kk)"
-  proof -
-    have "length as = n" by (simp add: as_def pow2_list_def)
-    moreover have "kk < n" using kk_bounds by simp
-    moreover have "distinct_subset_sums as" by (simp add: as_def distinct_subset_sums_pow2_list)
-    ultimately show ?thesis
-      using enumR_length_geq_two by blast
-  qed
-  
-  show "∃v∈set (enumL as s kk). v ∈ set (enumR as s kk)"
-    using pow2_hit[OF n_ge2 kk_bounds] by (simp add: as_def s_def)
-  
-  show "∃v∈set (enumL as s kk). v ∉ set (enumR as s kk)"
-    using pow2_miss[OF n_ge2 kk_bounds] by (simp add: as_def s_def)
-  
-  show "∀j. good as s ((!) (enc as s kk)) ((!) (enc as s kk)) ⟶
-            (∀j'<length (enumL as s kk). j' ≠ j ⟶
-               Lval_at as s ((!) (enc as s kk)) j' ∉ set (enumR as s kk))"
-    using pow2_baseline_only_j[OF n_ge2 kk_bounds] by (simp add: as_def s_def)
+  with eq show ?thesis by simp
 qed
 
 end  (* context Coverage_TM *)
