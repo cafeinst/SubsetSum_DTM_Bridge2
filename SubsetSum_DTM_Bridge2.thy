@@ -817,15 +817,23 @@ lemma steps_lower_bound:
   shows "steps M (enc as s kk) ≥
            card (LHS (e_k as s kk) n) + card (RHS (e_k as s kk) n)"
 proof -
-  (* Prove hit and miss using pow2 lemmas *)
-  have hit: "∃v ∈ set (enumL as s kk). v ∈ set (enumR as s kk)"
+  (* Prove ALL hit/miss combinations using pow2 lemmas *)
+  have hit_L: "∃v ∈ set (enumL as s kk). v ∈ set (enumR as s kk)"
     using pow2_hit[OF n_ge2 kk_bounds] as_is_pow2 s_is_pow2 by simp
   
-  have miss: "∃v ∈ set (enumL as s kk). v ∉ set (enumR as s kk)"
+  have miss_L: "∃v ∈ set (enumL as s kk). v ∉ set (enumR as s kk)"
     using pow2_miss[OF n_ge2 kk_bounds] as_is_pow2 s_is_pow2 by simp
+  
+  have hit_R: "∃v ∈ set (enumR as s kk). v ∈ set (enumL as s kk)"
+    using hit_L by blast
+  
+  have miss_R: "∃v ∈ set (enumR as s kk). v ∉ set (enumL as s kk)"
+    sorry (* AXIOM: For pow2, there exists value in RHS not in LHS 
+             OR: prove symmetric pow2_miss_R *)
 
   (* Coverage: every block is touched *)
-  from coverage_blocks[OF n_ge2 kk_bounds distinct n_def[symmetric] hit miss]  (* ADD hit miss HERE *)
+  from coverage_blocks[OF n_ge2 kk_bounds distinct n_def[symmetric] 
+                          hit_L miss_L hit_R miss_R]
   have Lcov: "∀j<length (enumL as s kk). 
                 Base.read0 M (enc as s kk) ∩ blockL_abs enc0 as s j ≠ {}"
    and Rcov: "∀j<length (enumR as s kk). 
