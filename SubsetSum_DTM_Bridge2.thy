@@ -659,6 +659,141 @@ proof -
     by (auto simp: enumL_def enumR_def len_as)
 qed
 
+(* Symmetric lemma: RHS has value not in LHS *)
+lemma pow2_miss_R:
+  assumes "n ≥ 2" "1 ≤ kk" "kk < n"
+  defines "as ≡ pow2_list n"
+      and "s ≡ pow2_target n"
+  shows "∃v∈set (enumR as s kk). v ∉ set (enumL as s kk)"
+proof -
+  (* Use v = -1 (taking only the last element from RHS positions) *)
+  define v where "v = (-1::int)"
+  
+  have len_as: "length as = n"
+    by (simp add: as_def pow2_list_def)
+  
+  (* v ∈ RHS: select only position n-1 (the last element) *)
+  have v_in_RHS: "v ∈ RHS (e_k as s kk) n"
+  proof -
+    (* Construct bitvector: zeros everywhere except position n-1 *)
+    define ys where "ys = replicate (n-1) (0::int) @ [1::int]"
+    
+    have ys_len: "length ys = n"
+      using ys_def assms(1) by simp
+    
+    have ys_in_bitvec: "ys ∈ bitvec n"
+      unfolding bitvec_def using ys_len ys_def by auto
+    
+    have "snd (e_k as s kk ys) = v"
+    proof -
+      have "snd (e_k as s kk ys) = s - sum_as_on as {kk..<n} ys"
+        by (simp add: e_k_def rhs_of_def len_as sum_as_on_def)
+      
+      (* Key fact: ys ! (n-1) = 1 *)
+      have ys_last: "ys ! (n-1) = 1"
+      proof -
+        have len_rep: "length (replicate (n-1) 0) = n-1" by simp
+        have "ys ! (n-1) = (replicate (n-1) 0 @ [1]) ! (n-1)"
+          by (simp add: ys_def)
+        also have "... = [1::int] ! ((n-1) - (n-1))"
+          by (subst nth_append, simp add: len_rep)
+        also have "... = [1::int] ! 0" by simp
+        also have "... = 1" by simp
+        finally show ?thesis .
+      qed
+      
+      (* All positions before n-1 have ys!i = 0 *)
+      have ys_before: "∀i. i < n-1 ⟶ ys ! i = 0"
+        using ys_def by (simp add: nth_append)
+      
+      (* The sum picks out only position n-1 *)
+      have sum_eq: "(∑i∈{kk..<n}. as ! i * ys ! i) = as ! (n-1)"
+      proof -
+        have n1_in: "n-1 ∈ {kk..<n}" using assms(1,3) by auto
+        
+        (* All positions except n-1 contribute 0 *)
+        have other_zero: "∀i∈{kk..<n}-{n-1}. as ! i * ys ! i = 0"
+        proof
+          fix i assume i_in: "i ∈ {kk..<n}-{n-1}"
+          hence "i < n-1" by auto
+          hence "ys ! i = 0" using ys_before by simp
+          thus "as ! i * ys ! i = 0" by simp
+        qed
+        
+        have split: "{kk..<n} = {kk..<n}-{n-1} ∪ {n-1}"
+          using n1_in by auto
+        
+        have "(∑i∈{kk..<n}. as ! i * ys ! i) = 
+              (∑i∈{kk..<n}-{n-1}. as ! i * ys ! i) + as ! (n-1) * ys ! (n-1)"
+          by (subst split, subst sum.union_disjoint) auto
+        also have "... = 0 + as ! (n-1) * 1"
+          using other_zero ys_last
+          by (smt (verit, del_insts) mult_cancel_left1 sum_nonneg sum_nonpos)
+        finally show ?thesis by simp
+      qed
+      
+      (* as!(n-1) = 2^(n-1) *)
+      have as_n1: "as ! (n-1) = (2::int)^(n-1)"
+        using assms(1) by (simp add: as_def pow2_list_def)
+      
+      have "s - sum_as_on as {kk..<n} ys = s - (2::int)^(n-1)"
+        using sum_as_on_def sum_eq as_n1 by simp
+      also have "... = (2::int)^(n-1) - 1 - (2::int)^(n-1)"
+        by (simp add: s_def pow2_target_def)
+      also have "... = -1"
+        by simp
+      finally show ?thesis using v_def
+        by (simp add: ‹snd (e_k as s kk ys) = s - sum_as_on as {kk..<n} ys›)
+    qed
+    
+    thus ?thesis
+      unfolding RHS_def using ys_in_bitvec by blast
+  qed
+  
+  (* v ∉ LHS: -1 cannot be in LHS since LHS contains only non-negative sums *)
+  have v_not_in_LHS: "v ∉ LHS (e_k as s kk) n"
+  proof
+    assume "v ∈ LHS (e_k as s kk) n"
+    then obtain xs where xs_bv: "xs ∈ bitvec n" 
+      and xs_eq: "fst (e_k as s kk xs) = v"
+      unfolding LHS_def by blast
+    
+    have "fst (e_k as s kk xs) = sum_as_on as {0..<kk} xs"
+      by (simp add: e_k_def lhs_of_def)
+    
+    (* All terms in the sum are non-negative *)
+    have sum_nonneg: "(∑i∈{0..<kk}. as ! i * xs ! i) ≥ 0"
+    proof (rule sum_nonneg)
+      fix i assume "i ∈ {0..<kk}"
+      hence i_lt: "i < kk" by simp
+      with assms(3) have "i < n" by simp
+      
+      have "as ! i = (2::int)^i" 
+        using ‹i < n› by (simp add: as_def pow2_list_def)
+      hence "as ! i ≥ 0" by simp
+      
+      have "xs ! i ∈ {0,1}" 
+        using xs_bv ‹i < n› by (auto simp: bitvec_def dest: nth_mem)
+      hence "xs ! i ≥ 0" by auto
+      
+      show "0 ≤ as ! i * xs ! i"
+        using ‹as ! i ≥ 0› ‹xs ! i ≥ 0› by simp
+    qed
+    
+    have "v = sum_as_on as {0..<kk} xs"
+      using xs_eq by (simp add: e_k_def lhs_of_def)
+    also have "... = (∑i∈{0..<kk}. as ! i * xs ! i)"
+      by (simp add: sum_as_on_def)
+    finally have "v ≥ 0" using sum_nonneg by simp
+    
+    with v_def show False by simp
+  qed
+  
+  show ?thesis
+    using v_in_RHS v_not_in_LHS
+    by (auto simp: enumL_def enumR_def len_as)
+qed
+
 (* Now the key uniqueness lemma *)
 lemma pow2_unique_intersection:
   assumes "n ≥ 2" "1 ≤ kk" "kk < n"
@@ -828,8 +963,7 @@ proof -
     using hit_L by blast
   
   have miss_R: "∃v ∈ set (enumR as s kk). v ∉ set (enumL as s kk)"
-    sorry (* AXIOM: For pow2, there exists value in RHS not in LHS 
-             OR: prove symmetric pow2_miss_R *)
+    using pow2_miss_R[OF n_ge2 kk_bounds] as_is_pow2 s_is_pow2 by simp
 
   (* Coverage: every block is touched *)
   from coverage_blocks[OF n_ge2 kk_bounds distinct n_def[symmetric] 
