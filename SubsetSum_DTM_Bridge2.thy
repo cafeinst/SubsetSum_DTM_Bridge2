@@ -5,11 +5,48 @@ begin
 context Coverage_TM
 begin
 
+(* Add these helper lemmas at the top of SubsetSum_DTM_Bridge2: *)
+
+lemma power_comparison_half:
+  fixes n k :: nat
+  assumes "2 * k ≤ n" "k ≥ 1"
+  shows "(2::nat)^k ≤ 2^(n - k)"
+proof -
+  have "k ≤ n - k" using assms by simp
+  thus ?thesis by (rule power_increasing) simp
+qed
+
+lemma power_comparison_half_strict:
+  fixes n k :: nat  
+  assumes "2 * k < n" "k ≥ 1"
+  shows "(2::nat)^k < 2^(n - k)"
+proof -
+  have "k < n - k" using assms by simp
+  thus ?thesis by (rule power_strict_increasing) simp
+qed
+
+(* ADD THIS HERE: *)
+lemma LHS_larger_than_RHS_when_kk_large:
+  assumes "n ≥ 2" "kk > n - kk" "kk < n"
+      and "distinct_subset_sums as" "length as = n"
+  shows "card (set (enumL as s kk)) > card (set (enumR as s kk))"
+proof -
+  have "card (set (enumL as s kk)) = 2^kk"
+    using card_LHS_e_k assms by force
+  moreover have "card (set (enumR as s kk)) = 2^(n - kk)"
+    using card_RHS_e_k assms by force
+  moreover have "kk > n - kk" using assms(2) .
+  hence "(2::nat)^kk > 2^(n - kk)"
+    by (rule power_strict_increasing) simp
+  ultimately show ?thesis by simp
+qed
+
 (* Step 3: Construct R-oracle avoiding forbidden L-values *)
 lemma construct_avoiding_R_oracle:
   assumes unread_R: "∀jR < length (enumR as s kk). 
                       Base.read0 M (enc as s kk) ∩ blockR_abs enc0 as s kk jR = {}"
       and v_target: "v ∈ set (enumL as s kk)"
+      and v_not_forbidden: "v ∉ F"
       and forbidden: "finite F" "F ⊆ set (enumL as s kk)"
       and slack: "card (set (enumR as s kk)) > card F + 1"
   shows "∃oR_has oR_no.
@@ -19,7 +56,8 @@ lemma construct_avoiding_R_oracle:
       (∃jR. jR < length (enumR as s kk) ∧ Rval_at as s oR_has jR = v)) ∧
     (∀jR. jR < length (enumR as s kk) ⟶ Rval_at as s oR_no jR ≠ v) ∧
     (∀jR. jR < length (enumR as s kk) ⟶ 
-      (∀w. w ∈ F ⟶ Rval_at as s oR_has jR ≠ w ∧ Rval_at as s oR_no jR ≠ w))"
+      (∀w. w ∈ F ⟶ Rval_at as s oR_has jR ≠ w ∧ Rval_at as s oR_no jR ≠ w)) ∧
+    (∀jR. jR < length (enumR as s kk) ⟶ Rval_at as s oR_no jR ∈ set (enumR as s kk))"
 proof (cases "v ∈ set (enumR as s kk)")
   case True
 (* v is in RHS - construct oracles that include/exclude it *)
@@ -170,7 +208,55 @@ proof (cases "v ∈ set (enumR as s kk)")
             unfolding oR_has_def using exists_jR by simp
           
           also have "... = to_bits (W as s) v ! i"
-          sorry (* TODO: Block disjointness ensures SOME picks jR, so offset simplifies to i *)
+          proof -
+  (* The SOME picks jR uniquely because blocks are disjoint *)
+            have unique_block: "∀jR' < length (enumR as s kk). 
+                      base + i ∈ {length (enc0 as s) + offR as s kk jR' ..< 
+                                  length (enc0 as s) + offR as s kk jR' + W as s}
+                      ⟶ jR' = jR"
+            proof (intro allI impI)
+              fix jR' assume jR'_bound: "jR' < length (enumR as s kk)"
+                and in_block': "base + i ∈ {length (enc0 as s) + offR as s kk jR' ..< 
+                                   length (enc0 as s) + offR as s kk jR' + W as s}"
+              have in_block: "base + i ∈ blockR_abs enc0 as s kk jR"
+                unfolding blockR_abs_def base_def using i_bound by simp
+              have in_block'': "base + i ∈ blockR_abs enc0 as s kk jR'"
+                unfolding blockR_abs_def using in_block' by simp
+              show "jR' = jR"
+              proof (cases "jR' = jR")
+                case True thus ?thesis .
+              next
+                case False
+                have "blockR_abs enc0 as s kk jR ∩ blockR_abs enc0 as s kk jR' = {}"
+                  using blockR_abs_disjoint[OF False] by (simp add: Int_commute)
+                moreover have "base + i ∈ blockR_abs enc0 as s kk jR ∩ blockR_abs enc0 as s kk jR'"
+                  using in_block in_block'' by simp
+                ultimately show ?thesis by blast
+              qed
+            qed
+  
+            have picked_jR: "(SOME jR'. jR' < length (enumR as s kk) ∧ 
+                              base + i ∈ {length (enc0 as s) + offR as s kk jR' ..< 
+                                         length (enc0 as s) + offR as s kk jR' + W as s}) = jR"
+            proof (rule some_equality)
+              show "jR < length (enumR as s kk) ∧ 
+                    base + i ∈ {length (enc0 as s) + offR as s kk jR ..< 
+                     length (enc0 as s) + offR as s kk jR + W as s}"
+                using jR_bound base_def i_bound by auto
+            next
+              fix jR' assume "jR' < length (enumR as s kk) ∧
+                   base + i ∈ {length (enc0 as s) + offR as s kk jR' ..< 
+                              length (enc0 as s) + offR as s kk jR' + W as s}"
+              thus "jR' = jR" using unique_block by blast
+            qed
+  
+            have offset_simp: "base + i - (length (enc0 as s) + offR as s kk jR) = i"
+              by (simp add: base_def)
+  
+            show ?thesis
+              unfolding oR_has_def Let_def
+              using exists_jR picked_jR offset_simp by simp
+          qed
           
           finally show ?thesis .
         qed
@@ -194,8 +280,9 @@ proof (cases "v ∈ set (enumR as s kk)")
       using jR_bound by blast
   qed
   
-  (* Part 4: oR_no never contains v *)
-  have oR_no_avoids_v: "∀jR. jR < length (enumR as s kk) ⟶ Rval_at as s oR_no jR ≠ v"
+  (* Part 4a: oR_no always produces r_avoid *)
+  have oR_no_produces_r_avoid: "∀jR. jR < length (enumR as s kk) ⟶ 
+                                      Rval_at as s oR_no jR = r_avoid"
   proof (intro allI impI)
     fix jR assume jR_bound: "jR < length (enumR as s kk)"
     
@@ -226,7 +313,38 @@ proof (cases "v ∈ set (enumR as s kk)")
             apply (rule exI[where x=jR])
             using jR_bound base_def i_bound by auto
           ultimately show ?thesis
-            sorry (* TODO: Same SOME reasoning as Part 3 *)
+          proof -
+            have unique_jR: "(SOME jR'. jR' < length (enumR as s kk) ∧ 
+                                base + i ∈ {length (enc0 as s) + offR as s kk jR' ..< 
+                                 length (enc0 as s) + offR as s kk jR' + W as s}) = jR"
+            proof (rule some_equality)
+              show "jR < length (enumR as s kk) ∧ 
+                      base + i ∈ {length (enc0 as s) + offR as s kk jR ..< 
+                      length (enc0 as s) + offR as s kk jR + W as s}"
+                  using jR_bound base_def i_bound by auto
+            next
+              fix jR' assume jR'_prop: "jR' < length (enumR as s kk) ∧
+                              base + i ∈ {length (enc0 as s) + offR as s kk jR' ..< 
+                                         length (enc0 as s) + offR as s kk jR' + W as s}"
+              show "jR' = jR"
+              proof (cases "jR' = jR")
+                case True thus ?thesis .
+              next
+                case False
+                have in_jR: "base + i ∈ blockR_abs enc0 as s kk jR"
+                  unfolding blockR_abs_def base_def using i_bound by simp
+                have in_jR': "base + i ∈ blockR_abs enc0 as s kk jR'"
+                  unfolding blockR_abs_def using jR'_prop by simp
+                have "blockR_abs enc0 as s kk jR ∩ blockR_abs enc0 as s kk jR' = {}"
+                  using blockR_abs_disjoint[of jR jR' enc0 as s kk] False by (simp add: Int_commute)
+                thus ?thesis using in_jR in_jR' by blast
+              qed
+            qed
+            thus ?thesis
+              unfolding oR_no_def Let_def
+              by (smt (verit) add_strict_left_mono atLeastLessThan_iff base_def 
+                  diff_add_inverse i_bound jR_bound le_add1)
+          qed
         qed
         finally show "map oR_no [base ..< base + W as s] ! i = to_bits (W as s) r_avoid ! i" .
       qed
@@ -241,10 +359,12 @@ proof (cases "v ∈ set (enumR as s kk)")
       qed
       finally show ?thesis .
     qed
-    
-    thus "Rval_at as s oR_no jR ≠ v"
-      using r_avoid_neq_v by simp
+    thus "Rval_at as s oR_no jR = r_avoid" .
   qed
+
+  (* Part 4b: oR_no never contains v *)
+  have oR_no_avoids_v: "∀jR. jR < length (enumR as s kk) ⟶ Rval_at as s oR_no jR ≠ v"
+    using oR_no_produces_r_avoid r_avoid_neq_v by blast
   
   (* Part 5: Both oracles avoid F *)
   have both_avoid_F: "∀jR. jR < length (enumR as s kk) ⟶ 
@@ -271,15 +391,46 @@ proof (cases "v ∈ set (enumR as s kk)")
         have "map oR_has [base ..< base + W as s] ! i = oR_has (base + i)"
           using i_bound by simp
         also have "... = to_bits (W as s) v ! i"
-          sorry (* TODO: Same SOME reasoning as Part 3 *)
+        proof -
+          have unique_jR: "(SOME jR'. jR' < length (enumR as s kk) ∧ 
+                              base + i ∈ {length (enc0 as s) + offR as s kk jR' ..< 
+                                         length (enc0 as s) + offR as s kk jR' + W as s}) = jR"
+          proof (rule some_equality)
+            show "jR < length (enumR as s kk) ∧ 
+                  base + i ∈ {length (enc0 as s) + offR as s kk jR ..< 
+                     length (enc0 as s) + offR as s kk jR + W as s}"
+              using jR_bound base_def i_bound by auto
+          next
+            fix jR' assume jR'_prop: "jR' < length (enumR as s kk) ∧
+                              base + i ∈ {length (enc0 as s) + offR as s kk jR' ..< 
+                                         length (enc0 as s) + offR as s kk jR' + W as s}"
+            show "jR' = jR"
+            proof (cases "jR' = jR")
+              case True thus ?thesis .
+            next
+              case False
+              have in_jR: "base + i ∈ blockR_abs enc0 as s kk jR"
+                unfolding blockR_abs_def base_def using i_bound by simp
+              have in_jR': "base + i ∈ blockR_abs enc0 as s kk jR'"
+                unfolding blockR_abs_def using jR'_prop by simp
+              have "blockR_abs enc0 as s kk jR ∩ blockR_abs enc0 as s kk jR' = {}"
+                using blockR_abs_disjoint[of jR jR' enc0 as s kk] False by (simp add: Int_commute)
+              thus ?thesis using in_jR in_jR' by blast
+            qed
+          qed
+          thus ?thesis
+            unfolding oR_has_def Let_def
+              by (smt (verit, ccfv_threshold) add_strict_left_mono atLeastLessThan_iff base_def 
+                  diff_add_inverse i_bound jR_bound le_add1)
+          qed
         finally show "map oR_has [base ..< base + W as s] ! i = to_bits (W as s) v ! i" .
       qed
       thus ?thesis
         unfolding Rval_at_def base_def
         using bits_roundtrip True by auto
     qed
-    moreover have "v ∉ F" 
-      sorry (* TODO: Need disjointness between enumL and enumR, or assume v ∉ F *)
+    moreover have "v ∉ F"
+      using v_not_forbidden by simp
     ultimately have "Rval_at as s oR_has jR ≠ w" using w_in_F by blast
     
     (* oR_no contains r_avoid, and r_avoid ∉ F *)
@@ -300,7 +451,38 @@ proof (cases "v ∈ set (enumR as s kk)")
         have "map oR_no [base ..< base + W as s] ! i = oR_no (base + i)"
           using i_bound by simp
         also have "... = to_bits (W as s) r_avoid ! i"
-          sorry (* TODO: Same SOME reasoning as Part 3 *)
+          proof -
+            have unique_jR: "(SOME jR'. jR' < length (enumR as s kk) ∧ 
+                              base + i ∈ {length (enc0 as s) + offR as s kk jR' ..< 
+                                 length (enc0 as s) + offR as s kk jR' + W as s}) = jR"
+            proof (rule some_equality)
+              show "jR < length (enumR as s kk) ∧ 
+                    base + i ∈ {length (enc0 as s) + offR as s kk jR ..< 
+                      length (enc0 as s) + offR as s kk jR + W as s}"
+                using jR_bound base_def i_bound by auto
+            next
+              fix jR' assume jR'_prop: "jR' < length (enumR as s kk) ∧
+                              base + i ∈ {length (enc0 as s) + offR as s kk jR' ..< 
+                                         length (enc0 as s) + offR as s kk jR' + W as s}"
+              show "jR' = jR"
+              proof (cases "jR' = jR")
+                case True thus ?thesis .
+              next
+                case False
+                have in_jR: "base + i ∈ blockR_abs enc0 as s kk jR"
+                  unfolding blockR_abs_def base_def using i_bound by simp
+                have in_jR': "base + i ∈ blockR_abs enc0 as s kk jR'"
+                  unfolding blockR_abs_def using jR'_prop by simp
+                have "blockR_abs enc0 as s kk jR ∩ blockR_abs enc0 as s kk jR' = {}"
+                  using blockR_abs_disjoint[of jR jR' enc0 as s kk] False by (simp add: Int_commute)
+                thus ?thesis using in_jR in_jR' by blast
+              qed
+            qed
+            thus ?thesis
+              unfolding oR_no_def Let_def
+              by (smt (verit) add_strict_left_mono atLeastLessThan_iff base_def 
+                  diff_add_inverse i_bound jR_bound le_add1)
+          qed
         finally show "map oR_no [base ..< base + W as s] ! i = to_bits (W as s) r_avoid ! i" .
       qed
       thus ?thesis
@@ -314,11 +496,22 @@ proof (cases "v ∈ set (enumR as s kk)")
       using ‹Rval_at as s oR_has jR ≠ w› ‹Rval_at as s oR_no jR ≠ w› by simp
   qed
   
+  (* Part 6: oR_no produces only RHS values *)
+  have oR_no_in_catalog: "∀jR. jR < length (enumR as s kk) ⟶ 
+                                Rval_at as s oR_no jR ∈ set (enumR as s kk)"
+  proof (intro allI impI)
+    fix jR assume jR_bound: "jR < length (enumR as s kk)"
+    have "Rval_at as s oR_no jR = r_avoid"
+      using oR_no_produces_r_avoid jR_bound by blast
+    thus "Rval_at as s oR_no jR ∈ set (enumR as s kk)"
+      using r_avoid_in by simp
+  qed
+  
   (* Now show the thesis using the separate facts *)
   show ?thesis
     apply (rule exI[where x=oR_has])
     apply (rule exI[where x=oR_no])
-    using oR_has_agrees oR_no_agrees oR_has_contains_v oR_no_avoids_v both_avoid_F
+    using oR_has_agrees oR_no_agrees oR_has_contains_v oR_no_avoids_v both_avoid_F oR_no_in_catalog
     by blast
 
 next
@@ -457,10 +650,12 @@ next
         (∃jR. jR < length (enumR as s kk) ∧ Rval_at as s oR_has jR = v)"
     using False by simp
   
-  (* Part 4: oR_no never contains v - follows since all blocks have r2 ≠ v *)
-  have oR_no_avoids_v: "∀jR. jR < length (enumR as s kk) ⟶ Rval_at as s oR_no jR ≠ v"
+  (* Part 4a: oR_no always produces r2 *)
+  have oR_no_produces_r2: "∀jR. jR < length (enumR as s kk) ⟶ 
+                                  Rval_at as s oR_no jR = r2"
   proof (intro allI impI)
     fix jR assume jR_bound: "jR < length (enumR as s kk)"
+    
     have "Rval_at as s oR_no jR = r2"
     proof -
       define base where "base = length (enc0 as s) + offR as s kk jR"
@@ -478,16 +673,51 @@ next
         have "map oR_no [base ..< base + W as s] ! i = oR_no (base + i)"
           using i_bound by simp
         also have "... = to_bits (W as s) r2 ! i"
-            sorry (* TODO: Same SOME reasoning as Part 3 *)
+        proof -
+          have unique_jR: "(SOME jR'. jR' < length (enumR as s kk) ∧ 
+                              base + i ∈ {length (enc0 as s) + offR as s kk jR' ..< 
+                                         length (enc0 as s) + offR as s kk jR' + W as s}) = jR"
+          proof (rule some_equality)
+            show "jR < length (enumR as s kk) ∧ 
+                  base + i ∈ {length (enc0 as s) + offR as s kk jR ..< 
+                     length (enc0 as s) + offR as s kk jR + W as s}"
+              using jR_bound base_def i_bound by auto
+          next
+            fix jR' assume jR'_prop: "jR' < length (enumR as s kk) ∧
+                              base + i ∈ {length (enc0 as s) + offR as s kk jR' ..< 
+                                         length (enc0 as s) + offR as s kk jR' + W as s}"
+            show "jR' = jR"
+            proof (cases "jR' = jR")
+              case True thus ?thesis .
+            next
+              case False
+              have in_jR: "base + i ∈ blockR_abs enc0 as s kk jR"
+                unfolding blockR_abs_def base_def using i_bound by simp
+              have in_jR': "base + i ∈ blockR_abs enc0 as s kk jR'"
+                unfolding blockR_abs_def using jR'_prop by simp
+              have "blockR_abs enc0 as s kk jR ∩ blockR_abs enc0 as s kk jR' = {}"
+                using blockR_abs_disjoint[of jR jR' enc0 as s kk] False by (simp add: Int_commute)
+              thus ?thesis using in_jR in_jR' by blast
+            qed
+          qed
+          thus ?thesis
+            unfolding oR_no_def Let_def
+            by (smt (z3) ‹i < length (map oR_no [base..<base + W as s])› 
+                add.commute add_diff_cancel_left' atLeastLessThan_upt base_def 
+                i_bound jR_bound le_diff_conv length_map nat_less_le nth_mem nth_upt)
+        qed
         finally show "map oR_no [base ..< base + W as s] ! i = to_bits (W as s) r2 ! i" .
       qed
       thus ?thesis
         unfolding Rval_at_def base_def
         using bits_roundtrip r2_in by auto
     qed
-    thus "Rval_at as s oR_no jR ≠ v"
-      using r2_neq_v by simp
+    thus "Rval_at as s oR_no jR = r2" .
   qed
+  
+  (* Part 4b: oR_no never contains v *)
+  have oR_no_avoids_v: "∀jR. jR < length (enumR as s kk) ⟶ Rval_at as s oR_no jR ≠ v"
+    using oR_no_produces_r2 r2_neq_v by blast
   
   (* Part 5: Both avoid F - r1 and r2 both not in F *)
   have both_avoid_F: "∀jR. jR < length (enumR as s kk) ⟶ 
@@ -513,7 +743,40 @@ next
         have "map oR_has [base ..< base + W as s] ! i = oR_has (base + i)"
           using i_bound by simp
         also have "... = to_bits (W as s) r1 ! i"
-            sorry (* TODO: Same SOME reasoning as Part 3 *)
+        proof -
+          have unique_jR: "(SOME jR'. jR' < length (enumR as s kk) ∧ 
+                              base + i ∈ {length (enc0 as s) + offR as s kk jR' ..< 
+                                         length (enc0 as s) + offR as s kk jR' + W as s}) = jR"
+          proof (rule some_equality)
+            show "jR < length (enumR as s kk) ∧ 
+                  base + i ∈ {length (enc0 as s) + offR as s kk jR ..< 
+                     length (enc0 as s) + offR as s kk jR + W as s}"
+              using jR_bound base_def i_bound by auto
+          next
+            fix jR' assume jR'_prop: "jR' < length (enumR as s kk) ∧
+                              base + i ∈ {length (enc0 as s) + offR as s kk jR' ..< 
+                                         length (enc0 as s) + offR as s kk jR' + W as s}"
+            show "jR' = jR"
+            proof (cases "jR' = jR")
+              case True thus ?thesis .
+            next
+              case False
+              have in_jR: "base + i ∈ blockR_abs enc0 as s kk jR"
+                unfolding blockR_abs_def base_def using i_bound by simp
+              have in_jR': "base + i ∈ blockR_abs enc0 as s kk jR'"
+                unfolding blockR_abs_def using jR'_prop by simp
+              have "blockR_abs enc0 as s kk jR ∩ blockR_abs enc0 as s kk jR' = {}"
+                using blockR_abs_disjoint[of jR jR' enc0 as s kk] False by (simp add: Int_commute)
+              thus ?thesis using in_jR in_jR' by blast
+            qed
+          qed
+          thus ?thesis
+            unfolding oR_has_def Let_def
+            by (smt (verit) ‹i < length (map oR_has [base..<base + W as s])› 
+                add.commute add_diff_cancel_left' atLeastLessThan_upt base_def 
+                i_bound jR_bound le_diff_conv length_map nat_less_le nat_neq_iff 
+                nth_mem nth_upt)
+        qed
         finally show "map oR_has [base ..< base + W as s] ! i = to_bits (W as s) r1 ! i" .
       qed
       thus ?thesis
@@ -539,7 +802,47 @@ next
         have "map oR_no [base ..< base + W as s] ! i = oR_no (base + i)"
           using i_bound by simp
         also have "... = to_bits (W as s) r2 ! i"
-            sorry (* TODO: Same SOME reasoning as Part 3 *)
+        proof -
+          have exists_jR: "∃jR' < length (enumR as s kk). 
+                base + i ∈ {length (enc0 as s) + offR as s kk jR' ..< 
+                            length (enc0 as s) + offR as s kk jR' + W as s}"
+            apply (rule exI[where x=jR])
+            using jR_bound base_def i_bound by auto
+  
+          have unique_jR: "(SOME jR'. jR' < length (enumR as s kk) ∧ 
+                      base + i ∈ {length (enc0 as s) + offR as s kk jR' ..< 
+                                 length (enc0 as s) + offR as s kk jR' + W as s}) = jR"
+          proof (rule some_equality)
+            show "jR < length (enumR as s kk) ∧ 
+                  base + i ∈ {length (enc0 as s) + offR as s kk jR ..< 
+                      length (enc0 as s) + offR as s kk jR + W as s}"
+              using jR_bound base_def i_bound by auto
+          next
+            fix jR' assume jR'_prop: "jR' < length (enumR as s kk) ∧
+                              base + i ∈ {length (enc0 as s) + offR as s kk jR' ..< 
+                                         length (enc0 as s) + offR as s kk jR' + W as s}"
+            show "jR' = jR"
+            proof (cases "jR' = jR")
+              case True thus ?thesis .
+            next
+              case False
+              have in_jR: "base + i ∈ blockR_abs enc0 as s kk jR"
+                unfolding blockR_abs_def base_def using i_bound by simp
+              have in_jR': "base + i ∈ blockR_abs enc0 as s kk jR'"
+                unfolding blockR_abs_def using jR'_prop by simp
+              have "blockR_abs enc0 as s kk jR ∩ blockR_abs enc0 as s kk jR' = {}"
+                using blockR_abs_disjoint[of jR jR' enc0 as s kk] False by (simp add: Int_commute)
+              thus ?thesis using in_jR in_jR' by blast
+            qed
+          qed
+  
+          have offset_eq: "base + i - (length (enc0 as s) + offR as s kk jR) = i"
+            by (simp add: base_def)
+  
+          show ?thesis
+            unfolding oR_no_def Let_def
+            using exists_jR unique_jR offset_eq by simp
+        qed
         finally show "map oR_no [base ..< base + W as s] ! i = to_bits (W as s) r2 ! i" .
       qed
       thus ?thesis
@@ -552,11 +855,22 @@ next
       using ‹Rval_at as s oR_has jR ≠ w› ‹Rval_at as s oR_no jR ≠ w› by simp
   qed
   
+  (* Part 6: oR_no produces only RHS values *)
+  have oR_no_in_catalog: "∀jR. jR < length (enumR as s kk) ⟶ 
+                                Rval_at as s oR_no jR ∈ set (enumR as s kk)"
+  proof (intro allI impI)
+    fix jR assume jR_bound: "jR < length (enumR as s kk)"
+    have "Rval_at as s oR_no jR = r2"
+      using oR_no_produces_r2 jR_bound by blast
+    thus "Rval_at as s oR_no jR ∈ set (enumR as s kk)"
+      using r2_in by simp
+  qed
+  
   (* Now show the thesis using the separate facts *)
   show ?thesis
     apply (rule exI[where x=oR_has])
     apply (rule exI[where x=oR_no])
-    using oR_has_agrees oR_no_agrees oR_has_has_v oR_no_avoids_v both_avoid_F
+    using oR_has_agrees oR_no_agrees oR_has_has_v oR_no_avoids_v both_avoid_F oR_no_in_catalog
     by blast
 qed
 
@@ -565,6 +879,7 @@ lemma construct_avoiding_L_oracle:
   assumes unread_L: "∀jL < length (enumL as s kk). 
                       Base.read0 M (enc as s kk) ∩ blockL_abs enc0 as s jL = {}"
       and v_target: "v ∈ set (enumR as s kk)"
+      and v_not_forbidden: "v ∉ F"
       and forbidden: "finite F" "F ⊆ set (enumR as s kk)"
       and slack: "card (set (enumL as s kk)) > card F + 1"
   shows "∃oL_has oL_no.
@@ -574,8 +889,790 @@ lemma construct_avoiding_L_oracle:
       (∃jL. jL < length (enumL as s kk) ∧ Lval_at as s oL_has jL = v)) ∧
     (∀jL. jL < length (enumL as s kk) ⟶ Lval_at as s oL_no jL ≠ v) ∧
     (∀jL. jL < length (enumL as s kk) ⟶ 
-      (∀w. w ∈ F ⟶ Lval_at as s oL_has jL ≠ w ∧ Lval_at as s oL_no jL ≠ w))"
-  sorry (* Full proof with cases - add if needed *)
+      (∀w. w ∈ F ⟶ Lval_at as s oL_has jL ≠ w ∧ Lval_at as s oL_no jL ≠ w)) ∧
+    (∀jL. jL < length (enumL as s kk) ⟶ Lval_at as s oL_no jL ∈ set (enumL as s kk))"
+proof (cases "v ∈ set (enumL as s kk)")
+  case True
+  (* v is in LHS - construct oracles that include/exclude it *)
+  
+  have "card (set (enumL as s kk)) > card (insert v F)"
+  proof -
+    have "card (insert v F) ≤ card F + 1"
+      using forbidden(1) by (simp add: card_insert_if)
+    thus ?thesis using slack by simp
+  qed
+
+  moreover have "insert v F ⊆ set (enumR as s kk)"
+    using v_target forbidden(2) by auto
+
+  moreover have "finite (insert v F)"
+    using forbidden(1) by simp
+
+  ultimately obtain l_avoid where 
+    l_avoid_in: "l_avoid ∈ set (enumL as s kk)" and
+    l_avoid_out: "l_avoid ∉ insert v F"
+    using exists_lhs_avoiding_finite_forbidden_set by blast
+
+  have l_avoid_neq_v: "l_avoid ≠ v" using l_avoid_out by simp
+  have l_avoid_not_F: "l_avoid ∉ F" using l_avoid_out by simp
+
+  define oL_has where "oL_has = (λi.
+    if ∃jL < length (enumL as s kk). 
+       i ∈ {length (enc0 as s) + offL as s jL ..< length (enc0 as s) + offL as s jL + W as s}
+    then
+      let jL = (SOME jL. jL < length (enumL as s kk) ∧ 
+                        i ∈ {length (enc0 as s) + offL as s jL ..< length (enc0 as s) + offL as s jL + W as s});
+          offset = i - (length (enc0 as s) + offL as s jL)
+      in to_bits (W as s) v ! offset
+    else
+      (enc as s kk) ! i)"
+  
+  define oL_no where "oL_no = (λi.
+    if ∃jL < length (enumL as s kk). 
+       i ∈ {length (enc0 as s) + offL as s jL ..< length (enc0 as s) + offL as s jL + W as s}
+    then
+      let jL = (SOME jL. jL < length (enumL as s kk) ∧ 
+                        i ∈ {length (enc0 as s) + offL as s jL ..< length (enc0 as s) + offL as s jL + W as s});
+          offset = i - (length (enc0 as s) + offL as s jL)
+      in to_bits (W as s) l_avoid ! offset
+    else
+      (enc as s kk) ! i)"
+  
+  have oL_has_agrees: "∀i. i ∈ Base.read0 M (enc as s kk) ⟶ oL_has i = (enc as s kk) ! i"
+  proof (intro allI impI)
+    fix i assume i_read: "i ∈ Base.read0 M (enc as s kk)"
+    show "oL_has i = (enc as s kk) ! i"
+    proof (cases "∃jL < length (enumL as s kk). 
+                 i ∈ {length (enc0 as s) + offL as s jL ..< length (enc0 as s) + offL as s jL + W as s}")
+      case True
+      then obtain jL where jL_prop: 
+        "jL < length (enumL as s kk)"
+        "i ∈ {length (enc0 as s) + offL as s jL ..< length (enc0 as s) + offL as s jL + W as s}"
+        by blast
+      
+      have "Base.read0 M (enc as s kk) ∩ blockL_abs enc0 as s jL = {}"
+        using unread_L jL_prop(1) by blast
+      
+      moreover have "i ∈ blockL_abs enc0 as s jL"
+        unfolding blockL_abs_def using jL_prop(2) by simp
+      
+      ultimately have "i ∉ Base.read0 M (enc as s kk)" by blast
+      
+      thus ?thesis using i_read by simp
+    next
+      case False
+      then show ?thesis unfolding oL_has_def by auto
+    qed
+  qed
+  
+  have oL_no_agrees: "∀i. i ∈ Base.read0 M (enc as s kk) ⟶ oL_no i = (enc as s kk) ! i"
+  proof (intro allI impI)
+    fix i assume i_read: "i ∈ Base.read0 M (enc as s kk)"
+    show "oL_no i = (enc as s kk) ! i"
+    proof (cases "∃jL < length (enumL as s kk). 
+                 i ∈ {length (enc0 as s) + offL as s jL ..< length (enc0 as s) + offL as s jL + W as s}")
+      case True
+      then obtain jL where jL_prop: 
+        "jL < length (enumL as s kk)"
+        "i ∈ {length (enc0 as s) + offL as s jL ..< length (enc0 as s) + offL as s jL + W as s}"
+        by blast
+      have "Base.read0 M (enc as s kk) ∩ blockL_abs enc0 as s jL = {}"
+        using unread_L jL_prop(1) by blast
+      moreover have "i ∈ blockL_abs enc0 as s jL"
+        unfolding blockL_abs_def using jL_prop(2) by simp
+      ultimately have "i ∉ Base.read0 M (enc as s kk)" by blast
+      thus ?thesis using i_read by simp
+    next
+      case False
+      then show ?thesis unfolding oL_no_def by auto
+    qed
+  qed
+  
+  have oL_has_contains_v: "v ∈ set (enumL as s kk) ⟶ 
+        (∃jL. jL < length (enumL as s kk) ∧ Lval_at as s oL_has jL = v)"
+  proof (intro impI)
+    assume "v ∈ set (enumL as s kk)"
+    have "∃jL. jL < length (enumL as s kk)"
+      using ‹v ∈ set (enumL as s kk)› by (meson in_set_conv_nth)
+    then obtain jL where jL_bound: "jL < length (enumL as s kk)" by blast
+    
+    have "Lval_at as s oL_has jL = v"
+    proof -
+      define base where "base = length (enc0 as s) + offL as s jL"
+      
+      have "map oL_has [base ..< base + W as s] = to_bits (W as s) v"
+      proof (rule nth_equalityI)
+        show "length (map oL_has [base ..< base + W as s]) = length (to_bits (W as s) v)"
+        proof -
+          have "v ∈ set (enumL as s kk) ∪ set (enumR as s kk)"
+            using ‹v ∈ set (enumL as s kk)› by auto
+          thus ?thesis using bits_roundtrip by auto
+        qed
+      next
+        fix i assume "i < length (map oL_has [base ..< base + W as s])"
+        hence i_bound: "i < W as s" by simp
+        
+        have "map oL_has [base ..< base + W as s] ! i = oL_has (base + i)"
+          using i_bound by simp
+        also have "... = to_bits (W as s) v ! i"
+        proof -
+          have in_range: "base + i ∈ {base ..< base + W as s}"
+            using i_bound by simp
+          
+          have exists_jL: "∃jL' < length (enumL as s kk). 
+                        base + i ∈ {length (enc0 as s) + offL as s jL' ..< 
+                                    length (enc0 as s) + offL as s jL' + W as s}"
+            apply (rule exI[where x=jL])
+            using jL_bound base_def i_bound by auto
+          
+          have "oL_has (base + i) = 
+                (let jL' = (SOME jL'. jL' < length (enumL as s kk) ∧ 
+                                     base + i ∈ {length (enc0 as s) + offL as s jL' ..< 
+                                                 length (enc0 as s) + offL as s jL' + W as s});
+                     offset = base + i - (length (enc0 as s) + offL as s jL')
+                 in to_bits (W as s) v ! offset)"
+            unfolding oL_has_def using exists_jL by simp
+          
+          also have "... = to_bits (W as s) v ! i"
+          proof -
+            have unique_block: "∀jL' < length (enumL as s kk). 
+                      base + i ∈ {length (enc0 as s) + offL as s jL' ..< 
+                                  length (enc0 as s) + offL as s jL' + W as s}
+                      ⟶ jL' = jL"
+            proof (intro allI impI)
+              fix jL' assume jL'_bound: "jL' < length (enumL as s kk)"
+                and in_block': "base + i ∈ {length (enc0 as s) + offL as s jL' ..< 
+                                   length (enc0 as s) + offL as s jL' + W as s}"
+              have in_block: "base + i ∈ blockL_abs enc0 as s jL"
+                unfolding blockL_abs_def base_def using i_bound by simp
+              have in_block'': "base + i ∈ blockL_abs enc0 as s jL'"
+                unfolding blockL_abs_def using in_block' by simp
+              show "jL' = jL"
+              proof (cases "jL' = jL")
+                case True thus ?thesis .
+              next
+                case False
+                have "blockL_abs enc0 as s jL ∩ blockL_abs enc0 as s jL' = {}"
+                  using blockL_abs_disjoint[OF False] by (simp add: Int_commute)
+                moreover have "base + i ∈ blockL_abs enc0 as s jL ∩ blockL_abs enc0 as s jL'"
+                  using in_block in_block'' by simp
+                ultimately show ?thesis by blast
+              qed
+            qed
+  
+            have picked_jL: "(SOME jL'. jL' < length (enumL as s kk) ∧ 
+                              base + i ∈ {length (enc0 as s) + offL as s jL' ..< 
+                                         length (enc0 as s) + offL as s jL' + W as s}) = jL"
+            proof (rule some_equality)
+              show "jL < length (enumL as s kk) ∧ 
+                    base + i ∈ {length (enc0 as s) + offL as s jL ..< 
+                     length (enc0 as s) + offL as s jL + W as s}"
+                using jL_bound base_def i_bound by auto
+            next
+              fix jL' assume "jL' < length (enumL as s kk) ∧
+                   base + i ∈ {length (enc0 as s) + offL as s jL' ..< 
+                              length (enc0 as s) + offL as s jL' + W as s}"
+              thus "jL' = jL" using unique_block by blast
+            qed
+  
+            have offset_simp: "base + i - (length (enc0 as s) + offL as s jL) = i"
+              by (simp add: base_def)
+  
+            show ?thesis
+              unfolding oL_has_def Let_def
+              using exists_jL picked_jL offset_simp by simp
+          qed
+          
+          finally show ?thesis .
+        qed
+        finally show "map oL_has [base ..< base + W as s] ! i = to_bits (W as s) v ! i" .
+      qed
+      
+      have "Lval_at as s oL_has jL = from_bits (map oL_has [base ..< base + W as s])"
+        unfolding Lval_at_def base_def by simp
+      also have "... = from_bits (to_bits (W as s) v)"
+        using ‹map oL_has [base ..< base + W as s] = to_bits (W as s) v› by simp
+      also have "... = v"
+      proof -
+        have "v ∈ set (enumL as s kk) ∪ set (enumR as s kk)"
+          using ‹v ∈ set (enumL as s kk)› by auto
+        thus ?thesis using bits_roundtrip by blast
+      qed
+      finally show ?thesis .
+    qed
+    
+    thus "∃jL. jL < length (enumL as s kk) ∧ Lval_at as s oL_has jL = v"
+      using jL_bound by blast
+  qed
+  
+  have oL_no_produces_l_avoid: "∀jL. jL < length (enumL as s kk) ⟶ 
+                                      Lval_at as s oL_no jL = l_avoid"
+  proof (intro allI impI)
+    fix jL assume jL_bound: "jL < length (enumL as s kk)"
+    
+    have "Lval_at as s oL_no jL = l_avoid"
+    proof -
+      define base where "base = length (enc0 as s) + offL as s jL"
+      have "map oL_no [base ..< base + W as s] = to_bits (W as s) l_avoid"
+      proof (rule nth_equalityI)
+        show "length (map oL_no [base ..< base + W as s]) = length (to_bits (W as s) l_avoid)"
+        proof -
+          have "l_avoid ∈ set (enumL as s kk) ∪ set (enumR as s kk)"
+            using l_avoid_in by auto
+          thus ?thesis using bits_roundtrip by auto
+        qed
+      next
+        fix i assume "i < length (map oL_no [base ..< base + W as s])"
+        hence i_bound: "i < W as s" by simp
+        
+        have "map oL_no [base ..< base + W as s] ! i = oL_no (base + i)"
+          using i_bound by simp
+        also have "... = to_bits (W as s) l_avoid ! i"
+        proof -
+          have "base + i ∈ {base ..< base + W as s}"
+            using i_bound by simp
+          moreover have "∃jL' < length (enumL as s kk). 
+                        base + i ∈ {length (enc0 as s) + offL as s jL' ..< 
+                                    length (enc0 as s) + offL as s jL' + W as s}"
+            apply (rule exI[where x=jL])
+            using jL_bound base_def i_bound by auto
+          ultimately show ?thesis
+          proof -
+            have unique_jL: "(SOME jL'. jL' < length (enumL as s kk) ∧ 
+                                base + i ∈ {length (enc0 as s) + offL as s jL' ..< 
+                                 length (enc0 as s) + offL as s jL' + W as s}) = jL"
+            proof (rule some_equality)
+              show "jL < length (enumL as s kk) ∧ 
+                      base + i ∈ {length (enc0 as s) + offL as s jL ..< 
+                      length (enc0 as s) + offL as s jL + W as s}"
+                  using jL_bound base_def i_bound by auto
+            next
+              fix jL' assume jL'_prop: "jL' < length (enumL as s kk) ∧
+                              base + i ∈ {length (enc0 as s) + offL as s jL' ..< 
+                                         length (enc0 as s) + offL as s jL' + W as s}"
+              show "jL' = jL"
+              proof (cases "jL' = jL")
+                case True thus ?thesis .
+              next
+                case False
+                have in_jL: "base + i ∈ blockL_abs enc0 as s jL"
+                  unfolding blockL_abs_def base_def using i_bound by simp
+                have in_jL': "base + i ∈ blockL_abs enc0 as s jL'"
+                  unfolding blockL_abs_def using jL'_prop by simp
+                have "blockL_abs enc0 as s jL ∩ blockL_abs enc0 as s jL' = {}"
+                  using blockL_abs_disjoint[of jL jL' enc0 as s] False by (simp add: Int_commute)
+                thus ?thesis using in_jL in_jL' by blast
+              qed
+            qed
+            thus ?thesis
+              unfolding oL_no_def Let_def
+              by (smt (verit) add_strict_left_mono atLeastLessThan_iff base_def 
+                  diff_add_inverse i_bound jL_bound le_add1)
+          qed
+        qed
+        finally show "map oL_no [base ..< base + W as s] ! i = to_bits (W as s) l_avoid ! i" .
+      qed
+      
+      hence "Lval_at as s oL_no jL = from_bits (to_bits (W as s) l_avoid)"
+        unfolding Lval_at_def base_def by simp
+      also have "... = l_avoid"
+      proof -
+        have "l_avoid ∈ set (enumL as s kk) ∪ set (enumR as s kk)"
+          using l_avoid_in by auto
+        thus ?thesis using bits_roundtrip by blast
+      qed
+      finally show ?thesis .
+    qed
+    thus "Lval_at as s oL_no jL = l_avoid" .
+  qed
+
+  have oL_no_avoids_v: "∀jL. jL < length (enumL as s kk) ⟶ Lval_at as s oL_no jL ≠ v"
+    using oL_no_produces_l_avoid l_avoid_neq_v by blast
+  
+  have both_avoid_F: "∀jL. jL < length (enumL as s kk) ⟶ 
+        (∀w. w ∈ F ⟶ Lval_at as s oL_has jL ≠ w ∧ Lval_at as s oL_no jL ≠ w)"
+  proof (intro allI impI)
+    fix jL w
+    assume jL_bound: "jL < length (enumL as s kk)" and w_in_F: "w ∈ F"
+    
+    have "Lval_at as s oL_has jL = v"
+    proof -
+      define base where "base = length (enc0 as s) + offL as s jL"
+      have "map oL_has [base ..< base + W as s] = to_bits (W as s) v"
+      proof (rule nth_equalityI)
+        show "length (map oL_has [base ..< base + W as s]) = length (to_bits (W as s) v)"
+        proof -
+          have "v ∈ set (enumL as s kk) ∪ set (enumR as s kk)"
+            using True by auto
+          thus ?thesis using bits_roundtrip by auto
+        qed
+      next
+        fix i assume "i < length (map oL_has [base ..< base + W as s])"
+        hence i_bound: "i < W as s" by simp
+        have "map oL_has [base ..< base + W as s] ! i = oL_has (base + i)"
+          using i_bound by simp
+        also have "... = to_bits (W as s) v ! i"
+        proof -
+          have unique_jL: "(SOME jL'. jL' < length (enumL as s kk) ∧ 
+                              base + i ∈ {length (enc0 as s) + offL as s jL' ..< 
+                                         length (enc0 as s) + offL as s jL' + W as s}) = jL"
+          proof (rule some_equality)
+            show "jL < length (enumL as s kk) ∧ 
+                  base + i ∈ {length (enc0 as s) + offL as s jL ..< 
+                     length (enc0 as s) + offL as s jL + W as s}"
+              using jL_bound base_def i_bound by auto
+          next
+            fix jL' assume jL'_prop: "jL' < length (enumL as s kk) ∧
+                              base + i ∈ {length (enc0 as s) + offL as s jL' ..< 
+                                         length (enc0 as s) + offL as s jL' + W as s}"
+            show "jL' = jL"
+            proof (cases "jL' = jL")
+              case True thus ?thesis .
+            next
+              case False
+              have in_jL: "base + i ∈ blockL_abs enc0 as s jL"
+                unfolding blockL_abs_def base_def using i_bound by simp
+              have in_jL': "base + i ∈ blockL_abs enc0 as s jL'"
+                unfolding blockL_abs_def using jL'_prop by simp
+              have "blockL_abs enc0 as s jL ∩ blockL_abs enc0 as s jL' = {}"
+                using blockL_abs_disjoint[of jL jL' enc0 as s] False by (simp add: Int_commute)
+              thus ?thesis using in_jL in_jL' by blast
+            qed
+          qed
+          thus ?thesis
+            unfolding oL_has_def Let_def
+              by (smt (verit, ccfv_threshold) add_strict_left_mono atLeastLessThan_iff base_def 
+                  diff_add_inverse i_bound jL_bound le_add1)
+          qed
+        finally show "map oL_has [base ..< base + W as s] ! i = to_bits (W as s) v ! i" .
+      qed
+      thus ?thesis
+        unfolding Lval_at_def base_def
+        using bits_roundtrip True by auto
+    qed
+    moreover have "v ∉ F"
+      using v_not_forbidden by simp
+    ultimately have "Lval_at as s oL_has jL ≠ w" using w_in_F by blast
+    
+    have "Lval_at as s oL_no jL = l_avoid"
+    proof -
+      define base where "base = length (enc0 as s) + offL as s jL"
+      have "map oL_no [base ..< base + W as s] = to_bits (W as s) l_avoid"
+      proof (rule nth_equalityI)
+        show "length (map oL_no [base ..< base + W as s]) = length (to_bits (W as s) l_avoid)"
+        proof -
+          have "l_avoid ∈ set (enumL as s kk) ∪ set (enumR as s kk)"
+            using l_avoid_in by auto
+          thus ?thesis using bits_roundtrip by auto
+        qed
+      next
+        fix i assume "i < length (map oL_no [base ..< base + W as s])"
+        hence i_bound: "i < W as s" by simp
+        have "map oL_no [base ..< base + W as s] ! i = oL_no (base + i)"
+          using i_bound by simp
+        also have "... = to_bits (W as s) l_avoid ! i"
+          proof -
+            have unique_jL: "(SOME jL'. jL' < length (enumL as s kk) ∧ 
+                              base + i ∈ {length (enc0 as s) + offL as s jL' ..< 
+                                 length (enc0 as s) + offL as s jL' + W as s}) = jL"
+            proof (rule some_equality)
+              show "jL < length (enumL as s kk) ∧ 
+                    base + i ∈ {length (enc0 as s) + offL as s jL ..< 
+                      length (enc0 as s) + offL as s jL + W as s}"
+                using jL_bound base_def i_bound by auto
+            next
+              fix jL' assume jL'_prop: "jL' < length (enumL as s kk) ∧
+                              base + i ∈ {length (enc0 as s) + offL as s jL' ..< 
+                                         length (enc0 as s) + offL as s jL' + W as s}"
+              show "jL' = jL"
+              proof (cases "jL' = jL")
+                case True thus ?thesis .
+              next
+                case False
+                have in_jL: "base + i ∈ blockL_abs enc0 as s jL"
+                  unfolding blockL_abs_def base_def using i_bound by simp
+                have in_jL': "base + i ∈ blockL_abs enc0 as s jL'"
+                  unfolding blockL_abs_def using jL'_prop by simp
+                have "blockL_abs enc0 as s jL ∩ blockL_abs enc0 as s jL' = {}"
+                  using blockL_abs_disjoint[of jL jL' enc0 as s] False by (simp add: Int_commute)
+                thus ?thesis using in_jL in_jL' by blast
+              qed
+            qed
+            thus ?thesis
+              unfolding oL_no_def Let_def
+              by (smt (verit) add_strict_left_mono atLeastLessThan_iff base_def 
+                  diff_add_inverse i_bound jL_bound le_add1)
+          qed
+        finally show "map oL_no [base ..< base + W as s] ! i = to_bits (W as s) l_avoid ! i" .
+      qed
+      thus ?thesis
+        unfolding Lval_at_def base_def
+        using bits_roundtrip l_avoid_in by auto
+    qed
+    moreover have "l_avoid ∉ F" using l_avoid_not_F .
+    ultimately have "Lval_at as s oL_no jL ≠ w" using w_in_F by blast
+    
+    show "Lval_at as s oL_has jL ≠ w ∧ Lval_at as s oL_no jL ≠ w"
+      using ‹Lval_at as s oL_has jL ≠ w› ‹Lval_at as s oL_no jL ≠ w› by simp
+  qed
+  
+  have oL_no_in_catalog: "∀jL. jL < length (enumL as s kk) ⟶ 
+                                Lval_at as s oL_no jL ∈ set (enumL as s kk)"
+  proof (intro allI impI)
+    fix jL assume jL_bound: "jL < length (enumL as s kk)"
+    have "Lval_at as s oL_no jL = l_avoid"
+      using oL_no_produces_l_avoid jL_bound by blast
+    thus "Lval_at as s oL_no jL ∈ set (enumL as s kk)"
+      using l_avoid_in by simp
+  qed
+  
+  show ?thesis
+    apply (rule exI[where x=oL_has])
+    apply (rule exI[where x=oL_no])
+    using oL_has_agrees oL_no_agrees oL_has_contains_v oL_no_avoids_v both_avoid_F oL_no_in_catalog
+    by blast
+
+next
+  case False
+  
+  have "card (set (enumL as s kk)) > card F + 1" using slack .
+  
+  have enough_slack: "card (set (enumL as s kk) - F) ≥ 2"
+  proof -
+    have "finite (set (enumL as s kk))" by simp
+    have "card (set (enumL as s kk) - F) ≥ card (set (enumL as s kk)) - card F"
+    proof (cases "F ⊆ set (enumL as s kk)")
+      case True
+      then show ?thesis
+        using forbidden(1) by (simp add: card_Diff_subset)
+    next
+      case False
+      have "F ∩ set (enumL as s kk) ⊂ F"
+        using False forbidden(2) by blast
+      hence "card (F ∩ set (enumL as s kk)) < card F"
+        using forbidden(1) by (simp add: psubset_card_mono)
+      thus ?thesis
+        using forbidden(1) card_Diff_subset_Int le_diff_conv2
+        by (simp add: diff_card_le_card_Diff)
+    qed
+    moreover have "card (set (enumL as s kk)) - card F > 1"
+      using slack by simp
+    ultimately show ?thesis by simp
+  qed
+  
+  obtain l1 l2 where
+    l1_in: "l1 ∈ set (enumL as s kk)" and l1_out: "l1 ∉ F" and
+    l2_in: "l2 ∈ set (enumL as s kk)" and l2_out: "l2 ∉ F" and
+    l_diff: "l1 ≠ l2"
+  proof -
+    have "∃l1 l2. l1 ∈ set (enumL as s kk) - F ∧ l2 ∈ set (enumL as s kk) - F ∧ l1 ≠ l2"
+    proof -
+      have "finite (set (enumL as s kk) - F)" by simp
+      moreover have "card (set (enumL as s kk) - F) ≥ 2" using enough_slack .
+      ultimately obtain xs where "xs ⊆ set (enumL as s kk) - F" and "card xs = 2"
+        by (meson card_ge_0_finite obtain_subset_with_card_n)
+      then obtain l1 l2 where "xs = {l1, l2}" and "l1 ≠ l2"
+        by (auto simp: card_2_iff)
+      thus ?thesis using ‹xs ⊆ set (enumL as s kk) - F› by blast
+    qed
+    then obtain l1 l2 where "l1 ∈ set (enumL as s kk) - F" "l2 ∈ set (enumL as s kk) - F" "l1 ≠ l2"
+      by blast
+    thus ?thesis using that by blast
+  qed
+  
+  have l1_neq_v: "l1 ≠ v" using False l1_in by blast
+  have l2_neq_v: "l2 ≠ v" using False l2_in by blast
+  
+  define oL_has where "oL_has = (λi.
+    if ∃jL < length (enumL as s kk). 
+       i ∈ {length (enc0 as s) + offL as s jL ..< length (enc0 as s) + offL as s jL + W as s}
+    then
+      let jL = (SOME jL. jL < length (enumL as s kk) ∧ 
+                        i ∈ {length (enc0 as s) + offL as s jL ..< length (enc0 as s) + offL as s jL + W as s});
+          offset = i - (length (enc0 as s) + offL as s jL)
+      in to_bits (W as s) l1 ! offset
+    else
+      (enc as s kk) ! i)"
+  
+  define oL_no where "oL_no = (λi.
+    if ∃jL < length (enumL as s kk). 
+       i ∈ {length (enc0 as s) + offL as s jL ..< length (enc0 as s) + offL as s jL + W as s}
+    then
+      let jL = (SOME jL. jL < length (enumL as s kk) ∧ 
+                        i ∈ {length (enc0 as s) + offL as s jL ..< length (enc0 as s) + offL as s jL + W as s});
+          offset = i - (length (enc0 as s) + offL as s jL)
+      in to_bits (W as s) l2 ! offset
+    else
+      (enc as s kk) ! i)"
+  
+  have oL_has_agrees: "∀i. i ∈ Base.read0 M (enc as s kk) ⟶ oL_has i = (enc as s kk) ! i"
+  proof (intro allI impI)
+    fix i assume i_read: "i ∈ Base.read0 M (enc as s kk)"
+    show "oL_has i = (enc as s kk) ! i"
+    proof (cases "∃jL < length (enumL as s kk). 
+                 i ∈ {length (enc0 as s) + offL as s jL ..< length (enc0 as s) + offL as s jL + W as s}")
+      case True
+      then obtain jL where jL_prop: 
+        "jL < length (enumL as s kk)"
+        "i ∈ {length (enc0 as s) + offL as s jL ..< length (enc0 as s) + offL as s jL + W as s}"
+        by blast
+      have "Base.read0 M (enc as s kk) ∩ blockL_abs enc0 as s jL = {}"
+        using unread_L jL_prop(1) by blast
+      moreover have "i ∈ blockL_abs enc0 as s jL"
+        unfolding blockL_abs_def using jL_prop(2) by simp
+      ultimately have "i ∉ Base.read0 M (enc as s kk)" by blast
+      thus ?thesis using i_read by simp
+    next
+      case False
+      then show ?thesis unfolding oL_has_def by auto
+    qed
+  qed
+  
+  have oL_no_agrees: "∀i. i ∈ Base.read0 M (enc as s kk) ⟶ oL_no i = (enc as s kk) ! i"
+  proof (intro allI impI)
+    fix i assume i_read: "i ∈ Base.read0 M (enc as s kk)"
+    show "oL_no i = (enc as s kk) ! i"
+    proof (cases "∃jL < length (enumL as s kk). 
+                 i ∈ {length (enc0 as s) + offL as s jL ..< length (enc0 as s) + offL as s jL + W as s}")
+      case True
+      then obtain jL where jL_prop: 
+        "jL < length (enumL as s kk)"
+        "i ∈ {length (enc0 as s) + offL as s jL ..< length (enc0 as s) + offL as s jL + W as s}"
+        by blast
+      have "Base.read0 M (enc as s kk) ∩ blockL_abs enc0 as s jL = {}"
+        using unread_L jL_prop(1) by blast
+      moreover have "i ∈ blockL_abs enc0 as s jL"
+        unfolding blockL_abs_def using jL_prop(2) by simp
+      ultimately have "i ∉ Base.read0 M (enc as s kk)" by blast
+      thus ?thesis using i_read by simp
+    next
+      case False
+      then show ?thesis unfolding oL_no_def by auto
+    qed
+  qed
+  
+  have oL_has_has_v: "v ∈ set (enumL as s kk) ⟶ 
+        (∃jL. jL < length (enumL as s kk) ∧ Lval_at as s oL_has jL = v)"
+    using False by simp
+  
+  have oL_no_produces_l2: "∀jL. jL < length (enumL as s kk) ⟶ 
+                                  Lval_at as s oL_no jL = l2"
+  proof (intro allI impI)
+    fix jL assume jL_bound: "jL < length (enumL as s kk)"
+    
+    have "Lval_at as s oL_no jL = l2"
+    proof -
+      define base where "base = length (enc0 as s) + offL as s jL"
+      have "map oL_no [base ..< base + W as s] = to_bits (W as s) l2"
+      proof (rule nth_equalityI)
+        show "length (map oL_no [base ..< base + W as s]) = length (to_bits (W as s) l2)"
+        proof -
+          have "l2 ∈ set (enumL as s kk) ∪ set (enumR as s kk)"
+            using l2_in by auto
+          thus ?thesis using bits_roundtrip by auto
+        qed
+      next
+        fix i assume "i < length (map oL_no [base ..< base + W as s])"
+        hence i_bound: "i < W as s" by simp
+        have "map oL_no [base ..< base + W as s] ! i = oL_no (base + i)"
+          using i_bound by simp
+        also have "... = to_bits (W as s) l2 ! i"
+        proof -
+          have unique_jL: "(SOME jL'. jL' < length (enumL as s kk) ∧ 
+                              base + i ∈ {length (enc0 as s) + offL as s jL' ..< 
+                                         length (enc0 as s) + offL as s jL' + W as s}) = jL"
+          proof (rule some_equality)
+            show "jL < length (enumL as s kk) ∧ 
+                  base + i ∈ {length (enc0 as s) + offL as s jL ..< 
+                     length (enc0 as s) + offL as s jL + W as s}"
+              using jL_bound base_def i_bound by auto
+          next
+            fix jL' assume jL'_prop: "jL' < length (enumL as s kk) ∧
+                              base + i ∈ {length (enc0 as s) + offL as s jL' ..< 
+                                         length (enc0 as s) + offL as s jL' + W as s}"
+            show "jL' = jL"
+            proof (cases "jL' = jL")
+              case True thus ?thesis .
+            next
+              case False
+              have in_jL: "base + i ∈ blockL_abs enc0 as s jL"
+                unfolding blockL_abs_def base_def using i_bound by simp
+              have in_jL': "base + i ∈ blockL_abs enc0 as s jL'"
+                unfolding blockL_abs_def using jL'_prop by simp
+              have "blockL_abs enc0 as s jL ∩ blockL_abs enc0 as s jL' = {}"
+                using blockL_abs_disjoint[of jL jL' enc0 as s] False by (simp add: Int_commute)
+              thus ?thesis using in_jL in_jL' by blast
+            qed
+          qed
+          thus ?thesis
+            unfolding oL_no_def Let_def
+            by (smt (z3) ‹i < length (map oL_no [base..<base + W as s])› 
+                add.commute add_diff_cancel_left' atLeastLessThan_upt base_def 
+                i_bound jL_bound le_diff_conv length_map nat_less_le nth_mem nth_upt)
+        qed
+        finally show "map oL_no [base ..< base + W as s] ! i = to_bits (W as s) l2 ! i" .
+      qed
+      thus ?thesis
+        unfolding Lval_at_def base_def
+        using bits_roundtrip l2_in by auto
+    qed
+    thus "Lval_at as s oL_no jL = l2" .
+  qed
+  
+  have oL_no_avoids_v: "∀jL. jL < length (enumL as s kk) ⟶ Lval_at as s oL_no jL ≠ v"
+    using oL_no_produces_l2 l2_neq_v by blast
+  
+  have both_avoid_F: "∀jL. jL < length (enumL as s kk) ⟶ 
+        (∀w. w ∈ F ⟶ Lval_at as s oL_has jL ≠ w ∧ Lval_at as s oL_no jL ≠ w)"
+  proof (intro allI impI)
+    fix jL w
+    assume jL_bound: "jL < length (enumL as s kk)" and w_in_F: "w ∈ F"
+    
+    have "Lval_at as s oL_has jL = l1"
+    proof -
+      define base where "base = length (enc0 as s) + offL as s jL"
+      have "map oL_has [base ..< base + W as s] = to_bits (W as s) l1"
+      proof (rule nth_equalityI)
+        show "length (map oL_has [base ..< base + W as s]) = length (to_bits (W as s) l1)"
+        proof -
+          have "l1 ∈ set (enumL as s kk) ∪ set (enumR as s kk)"
+            using l1_in by auto
+          thus ?thesis using bits_roundtrip by auto
+        qed
+      next
+        fix i assume "i < length (map oL_has [base ..< base + W as s])"
+        hence i_bound: "i < W as s" by simp
+        have "map oL_has [base ..< base + W as s] ! i = oL_has (base + i)"
+          using i_bound by simp
+        also have "... = to_bits (W as s) l1 ! i"
+        proof -
+          have unique_jL: "(SOME jL'. jL' < length (enumL as s kk) ∧ 
+                              base + i ∈ {length (enc0 as s) + offL as s jL' ..< 
+                                         length (enc0 as s) + offL as s jL' + W as s}) = jL"
+          proof (rule some_equality)
+            show "jL < length (enumL as s kk) ∧ 
+                  base + i ∈ {length (enc0 as s) + offL as s jL ..< 
+                     length (enc0 as s) + offL as s jL + W as s}"
+              using jL_bound base_def i_bound by auto
+          next
+            fix jL' assume jL'_prop: "jL' < length (enumL as s kk) ∧
+                              base + i ∈ {length (enc0 as s) + offL as s jL' ..< 
+                                         length (enc0 as s) + offL as s jL' + W as s}"
+            show "jL' = jL"
+            proof (cases "jL' = jL")
+              case True thus ?thesis .
+            next
+              case False
+              have in_jL: "base + i ∈ blockL_abs enc0 as s jL"
+                unfolding blockL_abs_def base_def using i_bound by simp
+              have in_jL': "base + i ∈ blockL_abs enc0 as s jL'"
+                unfolding blockL_abs_def using jL'_prop by simp
+              have "blockL_abs enc0 as s jL ∩ blockL_abs enc0 as s jL' = {}"
+                using blockL_abs_disjoint[of jL jL' enc0 as s] False by (simp add: Int_commute)
+              thus ?thesis using in_jL in_jL' by blast
+            qed
+          qed
+          thus ?thesis
+            unfolding oL_has_def Let_def
+            by (smt (verit) ‹i < length (map oL_has [base..<base + W as s])› 
+                add.commute add_diff_cancel_left' atLeastLessThan_upt base_def 
+                i_bound jL_bound le_diff_conv length_map nat_less_le nat_neq_iff 
+                nth_mem nth_upt)
+        qed
+        finally show "map oL_has [base ..< base + W as s] ! i = to_bits (W as s) l1 ! i" .
+      qed
+      thus ?thesis
+        unfolding Lval_at_def base_def
+        using bits_roundtrip l1_in by auto
+    qed
+    hence "Lval_at as s oL_has jL ≠ w" using l1_out w_in_F by blast
+    
+    have "Lval_at as s oL_no jL = l2"
+    proof -
+      define base where "base = length (enc0 as s) + offL as s jL"
+      have "map oL_no [base ..< base + W as s] = to_bits (W as s) l2"
+      proof (rule nth_equalityI)
+        show "length (map oL_no [base ..< base + W as s]) = length (to_bits (W as s) l2)"
+        proof -
+          have "l2 ∈ set (enumL as s kk) ∪ set (enumR as s kk)"
+            using l2_in by auto
+          thus ?thesis using bits_roundtrip by auto
+        qed
+      next
+        fix i assume "i < length (map oL_no [base ..< base + W as s])"
+        hence i_bound: "i < W as s" by simp
+        have "map oL_no [base ..< base + W as s] ! i = oL_no (base + i)"
+          using i_bound by simp
+        also have "... = to_bits (W as s) l2 ! i"
+        proof -
+          have exists_jL: "∃jL' < length (enumL as s kk). 
+                base + i ∈ {length (enc0 as s) + offL as s jL' ..< 
+                            length (enc0 as s) + offL as s jL' + W as s}"
+            apply (rule exI[where x=jL])
+            using jL_bound base_def i_bound by auto
+  
+          have unique_jL: "(SOME jL'. jL' < length (enumL as s kk) ∧ 
+                      base + i ∈ {length (enc0 as s) + offL as s jL' ..< 
+                                 length (enc0 as s) + offL as s jL' + W as s}) = jL"
+          proof (rule some_equality)
+            show "jL < length (enumL as s kk) ∧ 
+                  base + i ∈ {length (enc0 as s) + offL as s jL ..< 
+                      length (enc0 as s) + offL as s jL + W as s}"
+              using jL_bound base_def i_bound by auto
+          next
+            fix jL' assume jL'_prop: "jL' < length (enumL as s kk) ∧
+                              base + i ∈ {length (enc0 as s) + offL as s jL' ..< 
+                                         length (enc0 as s) + offL as s jL' + W as s}"
+            show "jL' = jL"
+            proof (cases "jL' = jL")
+              case True thus ?thesis .
+            next
+              case False
+              have in_jL: "base + i ∈ blockL_abs enc0 as s jL"
+                unfolding blockL_abs_def base_def using i_bound by simp
+              have in_jL': "base + i ∈ blockL_abs enc0 as s jL'"
+                unfolding blockL_abs_def using jL'_prop by simp
+              have "blockL_abs enc0 as s jL ∩ blockL_abs enc0 as s jL' = {}"
+                using blockL_abs_disjoint[of jL jL' enc0 as s] False by (simp add: Int_commute)
+              thus ?thesis using in_jL in_jL' by blast
+            qed
+          qed
+  
+          have offset_eq: "base + i - (length (enc0 as s) + offL as s jL) = i"
+            by (simp add: base_def)
+  
+          show ?thesis
+            unfolding oL_no_def Let_def
+            using exists_jL unique_jL offset_eq by simp
+        qed
+        finally show "map oL_no [base ..< base + W as s] ! i = to_bits (W as s) l2 ! i" .
+      qed
+      thus ?thesis
+        unfolding Lval_at_def base_def
+        using bits_roundtrip l2_in by auto
+    qed
+    hence "Lval_at as s oL_no jL ≠ w" using l2_out w_in_F by blast
+    
+    show "Lval_at as s oL_has jL ≠ w ∧ Lval_at as s oL_no jL ≠ w"
+      using ‹Lval_at as s oL_has jL ≠ w› ‹Lval_at as s oL_no jL ≠ w› by simp
+  qed
+  
+  have oL_no_in_catalog: "∀jL. jL < length (enumL as s kk) ⟶ 
+                                Lval_at as s oL_no jL ∈ set (enumL as s kk)"
+  proof (intro allI impI)
+    fix jL assume jL_bound: "jL < length (enumL as s kk)"
+    have "Lval_at as s oL_no jL = l2"
+      using oL_no_produces_l2 jL_bound by blast
+    thus "Lval_at as s oL_no jL ∈ set (enumL as s kk)"
+      using l2_in by simp
+  qed
+  
+  show ?thesis
+    apply (rule exI[where x=oL_has])
+    apply (rule exI[where x=oL_no])
+    using oL_has_agrees oL_no_agrees oL_has_has_v oL_no_avoids_v both_avoid_F oL_no_in_catalog
+    by blast
+qed
 
 (* LEMMA: Can flip oracle on block to change good value 
    
@@ -586,6 +1683,7 @@ lemma oracle_flip_changes_good:
       and two_lhs: "2 ≤ card (set (enumL as s kk))"
       and hit: "∃v ∈ set (enumL as s kk). v ∈ set (enumR as s kk)"
       and miss: "∃v ∈ set (enumL as s kk). v ∉ set (enumR as s kk)"
+
   shows "∃oL'. (∀i. i ∉ blockL_abs enc0 as s jL ⟶ 
                      oL' i = (enc as s kk) ! i) ∧
                good as s oL' ((!) (enc as s kk)) ≠ 
@@ -797,16 +1895,24 @@ proof -
     using slack F_bound two_lhs by simp
   
   (* Use construct_avoiding_R_oracle with v_hit as target *)
+(* First prove v_hit ∉ F *)
+  have v_hit_not_F: "v_hit ∉ F"
+    unfolding F_def by auto
+
+(* Now call the lemma with all 6 arguments *)
   obtain oR_has oR_no where
     oR_agree_has: "∀i. i ∈ Base.read0 M (enc as s kk) ⟶ oR_has i = (enc as s kk) ! i" and
     oR_agree_no: "∀i. i ∈ Base.read0 M (enc as s kk) ⟶ oR_no i = (enc as s kk) ! i" and
     oR_has_hit: "v_hit ∈ set (enumR as s kk) ⟶ 
-                (∃jR. jR < length (enumR as s kk) ∧ Rval_at as s oR_has jR = v_hit)" and
+              (∃jR. jR < length (enumR as s kk) ∧ Rval_at as s oR_has jR = v_hit)" and
     oR_no_no_hit: "∀jR. jR < length (enumR as s kk) ⟶ Rval_at as s oR_no jR ≠ v_hit" and
     oR_avoid_F: "∀jR. jR < length (enumR as s kk) ⟶ 
-                (∀w. w ∈ F ⟶ Rval_at as s oR_has jR ≠ w ∧ Rval_at as s oR_no jR ≠ w)"
-      using construct_avoiding_R_oracle[OF unread_R v_hit_in_L ‹finite F› F_subset slack_for_F]
-      by blast
+              (∀w. w ∈ F ⟶ Rval_at as s oR_has jR ≠ w ∧ Rval_at as s oR_no jR ≠ w)" and
+    oR_no_in_catalog: "∀jR. jR < length (enumR as s kk) ⟶ 
+                          Rval_at as s oR_no jR ∈ set (enumR as s kk)"  (* ADD THIS LINE *)
+    using construct_avoiding_R_oracle[OF unread_R v_hit_in_L v_hit_not_F ‹finite F› 
+      F_subset slack_for_F]
+    by blast
 
 (* Key fact: oR_has has v_hit, oR_no doesn't *)
   have oR_has_contains_hit: "∃jR. jR < length (enumR as s kk) ∧ Rval_at as s oR_has jR = v_hit"
@@ -947,7 +2053,7 @@ proof -
       jR_bound: "jR < length (enumR as s kk)" and
       match: "Lval_at as s oL_off jL' = Rval_at as s oR_no jR"
       unfolding good_def by blast
-  
+
   (* What is the value at jL'? *)
     show False
     proof (cases "jL' = jL")
@@ -957,23 +2063,25 @@ proof -
       moreover have "Rval_at as s oR_no jR ≠ v_miss"
       proof
         assume "Rval_at as s oR_no jR = v_miss"
-  (* This would mean v_miss matches some RHS value, but we know v_miss ∉ RHS *)
-  (* However, we need to show that Rval_at extracts FROM the RHS catalog *)
-  (* That's part of the programmability we haven't proven yet *)
-        show False
-          sorry (* AXIOM: Programmability - oR_no extracts values from RHS catalog,
-                    and v_miss ∉ RHS by v_miss_not_R *)
+      (* oR_no only produces values from RHS *)
+        have "Rval_at as s oR_no jR ∈ set (enumR as s kk)"
+          using oR_no_in_catalog jR_bound by blast
+      (* But v_miss is not in RHS *)
+        moreover have "v_miss ∉ set (enumR as s kk)"
+          using v_miss_not_R by simp
+        ultimately show False 
+          using ‹Rval_at as s oR_no jR = v_miss› by simp
       qed
       ultimately show False using match by simp
     next
       case False
-    (* Match at a different block jL' ≠ jL *)    
-(* This block is unchanged from the original encoding *)
+    (* Match at a different block jL' ≠ jL *)
+    (* This block is unchanged from the original encoding *)
       have unchanged: "Lval_at as s oL_off jL' = Lval_at as s ((!) (enc as s kk)) jL'"
         using Lval_at_unchanged_other_blocks_generic[OF jL_bound jL'_bound False] oL_off_outside
         by blast
 
-(* So the value is from the original enumL *)
+    (* So the value is from the original enumL *)
       have "Lval_at as s oL_off jL' = enumL as s kk ! jL'"
       proof -
         have "Lval_at as s ((!) (enc as s kk)) jL' = enumL as s kk ! jL'"
@@ -1002,13 +2110,11 @@ proof -
         hence "Lval_at as s oL_off jL' = v_miss"
           using ‹Lval_at as s oL_off jL' = enumL as s kk ! jL'› by simp
         hence "Rval_at as s oR_no jR = v_miss" using match by simp
-        moreover have "Rval_at as s oR_no jR ≠ v_miss"
-        proof
-          assume "Rval_at as s oR_no jR = v_miss"
-  (* oR_no produces values from RHS, but v_miss ∉ RHS *)
-          show False
-            sorry (* AXIOM: Programmability - same as other sorry above *)
-        qed
+      (* oR_no produces values from RHS, but v_miss ∉ RHS *)
+        moreover have "Rval_at as s oR_no jR ∈ set (enumR as s kk)"
+          using oR_no_in_catalog jR_bound by blast
+        moreover have "v_miss ∉ set (enumR as s kk)"
+          using v_miss_not_R by simp
         ultimately show False by simp
       next
         assume in_F: "enumL as s kk ! jL' ∈ F"
@@ -1068,6 +2174,10 @@ proof -
   have slack_for_F: "card (set (enumL as s kk)) > card F + 1"
     using slack F_bound two_rhs by simp
 
+(* First prove v_hit ∉ F *)
+  have v_hit_not_F: "v_hit ∉ F"
+    unfolding F_def by auto
+
 (* Use construct_avoiding_L_oracle with v_hit as target *)
   obtain oL_has oL_no where
     oL_agree_has: "∀i. i ∈ Base.read0 M (enc as s kk) ⟶ oL_has i = (enc as s kk) ! i" and
@@ -1076,9 +2186,12 @@ proof -
                 (∃jL. jL < length (enumL as s kk) ∧ Lval_at as s oL_has jL = v_hit)" and
     oL_no_no_hit: "∀jL. jL < length (enumL as s kk) ⟶ Lval_at as s oL_no jL ≠ v_hit" and
     oL_avoid_F: "∀jL. jL < length (enumL as s kk) ⟶ 
-                (∀w. w ∈ F ⟶ Lval_at as s oL_has jL ≠ w ∧ Lval_at as s oL_no jL ≠ w)"
-      using construct_avoiding_L_oracle[OF unread_L v_hit_in_R ‹finite F› F_subset slack_for_F]
-      by blast
+                (∀w. w ∈ F ⟶ Lval_at as s oL_has jL ≠ w ∧ Lval_at as s oL_no jL ≠ w)" and
+    oL_no_in_catalog: "∀jL. jL < length (enumL as s kk) ⟶ 
+                          Lval_at as s oL_no jL ∈ set (enumL as s kk)"
+    using construct_avoiding_L_oracle[OF unread_L v_hit_in_R v_hit_not_F 
+                                         F_finite F_subset slack_for_F]
+    by blast
 
 (* Key fact: oL_has has v_hit, oL_no doesn't *)
   have oL_has_contains_hit: "∃jL. jL < length (enumL as s kk) ∧ Lval_at as s oL_has jL = v_hit"
@@ -1304,6 +2417,7 @@ qed
 theorem coverage_by_oracle_contradiction_v2:
   assumes n_ge2: "n ≥ 2"
       and kk_bounds: "1 ≤ kk" "kk < n"
+      and kk_slack: "2 * kk < n"
       and distinct: "distinct_subset_sums as"
       and len: "length as = n"
       and hit: "∃v ∈ set (enumL as s kk). v ∈ set (enumR as s kk)"
@@ -1322,8 +2436,15 @@ proof -
   
 (* Prove slack: |RHS| > |LHS| *)
   have slack: "card (set (enumR as s kk)) > card (set (enumL as s kk))"
-  sorry (* AXIOM: For kk < n/2, we have 2^kk < 2^(n-kk) 
-           This follows from arithmetic on the split *)
+  proof -
+    have L_card: "card (set (enumL as s kk)) = 2^kk"
+      by (simp add: enumL_def card_LHS_e_k distinct kk_bounds(2) len less_or_eq_imp_le)
+    have R_card: "card (set (enumR as s kk)) = 2^(n - kk)"
+      by (simp add: enumR_def card_RHS_e_k distinct kk_bounds(2) len less_or_eq_imp_le)
+    have "kk < n - kk" using kk_slack by simp
+    hence "(2::nat)^kk < 2^(n - kk)" by (rule power_strict_increasing) simp
+    thus ?thesis using L_card R_card by simp
+  qed
 
 (* Need two_lhs for oracle construction *)
   have two_lhs: "2 ≤ card (set (enumL as s kk))"
@@ -1368,13 +2489,57 @@ proof -
   qed
 
 (* Therefore tree gives same answer for all oracle combinations *)
-have "run oL_on oR_has (T as s) = run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s)"
-  sorry (* AXIOM: run_agree_on_seen - oracles agree on all read positions 
-           Since unseenL and oR_has_agree show agreement on all queried positions *)
+  have "run oL_on oR_has (T as s) = run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s)"
+  proof (rule run_agree_on_seen(1)[symmetric])
+    show "⋀i. i ∈ seenL_run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s) 
+            ⟹ oL_on i = ((!) (enc as s kk)) i"
+    proof -
+      fix i assume i_seen: "i ∈ seenL_run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s)"
+    (* unseenL shows this set is disjoint from blockL_abs *)
+      have "i ∉ blockL_abs enc0 as s jL"
+        using unseenL i_seen by blast
+      thus "oL_on i = ((!) (enc as s kk)) i"
+        using oL_on_agree by blast
+    qed
+    show "⋀j. j ∈ seenR_run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s) 
+            ⟹ oR_has j = ((!) (enc as s kk)) j"
+    proof -
+      fix j assume j_seen: "j ∈ seenR_run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s)"
+      have "seenR_run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s) 
+          ⊆ Base.read0 M (enc as s kk)"
+        unfolding T_def by (rule seenR_tm_to_dtr_subset_read0)
+      hence "j ∈ Base.read0 M (enc as s kk)"
+        using j_seen by blast
+      thus "oR_has j = ((!) (enc as s kk)) j"
+        using oR_has_agree by blast
+    qed
+  qed
 
-have "run oL_off oR_no (T as s) = run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s)"
-  sorry (* AXIOM: run_agree_on_seen - oracles agree on all read positions 
-           Since unseenL and oR_no_agree show agreement on all queried positions *)
+  have "run oL_off oR_no (T as s) = run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s)"
+  proof (rule run_agree_on_seen(1)[symmetric])
+    show "⋀i. i ∈ seenL_run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s) 
+            ⟹ oL_off i = ((!) (enc as s kk)) i"
+    proof -
+      fix i assume i_seen: "i ∈ seenL_run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s)"
+    (* unseenL shows this set is disjoint from blockL_abs *)
+      have "i ∉ blockL_abs enc0 as s jL"
+        using unseenL i_seen by blast
+      thus "oL_off i = ((!) (enc as s kk)) i"
+        using oL_off_agree by blast
+    qed
+    show "⋀j. j ∈ seenR_run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s) 
+            ⟹ oR_no j = ((!) (enc as s kk)) j"
+    proof -
+      fix j assume j_seen: "j ∈ seenR_run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s)"
+      have "seenR_run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s) 
+          ⊆ Base.read0 M (enc as s kk)"
+        unfolding T_def by (rule seenR_tm_to_dtr_subset_read0)
+      hence "j ∈ Base.read0 M (enc as s kk)"
+        using j_seen by blast
+      thus "oR_no j = ((!) (enc as s kk)) j"
+        using oR_no_agree by blast
+    qed
+  qed
 
 (* So tree gives same answer for both oracle pairs *)
   hence same_run: "run oL_on oR_has (T as s) = run oL_off oR_no (T as s)"
@@ -1392,6 +2557,7 @@ qed
 theorem coverage_by_oracle_contradiction_R_v2:
   assumes n_ge2: "n ≥ 2"
       and kk_bounds: "1 ≤ kk" "kk < n"
+      and kk_large: "kk > n - kk"  (* ADD THIS LINE *)
       and distinct: "distinct_subset_sums as"
       and len: "length as = n"
       and hit: "∃v ∈ set (enumR as s kk). v ∈ set (enumL as s kk)"
@@ -1409,8 +2575,9 @@ proof -
     using miss_R_block by blast
   
   (* Prove slack: |LHS| > |RHS| *)
-  have slack: "card (set (enumL as s kk)) > card (set (enumR as s kk))"
-    sorry (* AXIOM: For kk > n/2, we have 2^kk > 2^(n-kk) *)
+  have slack: "card (set (enumR as s kk)) < card (set (enumL as s kk))"
+    using LHS_larger_than_RHS_when_kk_large[OF n_ge2 kk_large kk_bounds(2) distinct len] 
+    by simp
   
   (* Need two_rhs for oracle construction *)
   have two_rhs: "2 ≤ card (set (enumR as s kk))"
@@ -1459,10 +2626,56 @@ proof -
 
 (* Therefore tree gives same answer for all oracle combinations *)
   have "run oL_has oR_on (T as s) = run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s)"
-  sorry (* AXIOM: run_agree_on_seen for both oracles changing *)
+  proof (rule run_agree_on_seen(1)[symmetric])
+    show "⋀i. i ∈ seenL_run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s) 
+            ⟹ oL_has i = ((!) (enc as s kk)) i"
+    proof -
+      fix i assume i_seen: "i ∈ seenL_run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s)"
+      have "seenL_run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s) 
+            ⊆ Base.read0 M (enc as s kk)"
+        unfolding T_def by (rule seenL_tm_to_dtr_subset_read0)
+      hence "i ∈ Base.read0 M (enc as s kk)"
+        using i_seen by blast
+      thus "oL_has i = ((!) (enc as s kk)) i"
+        using oL_has_agree by blast
+    qed
+    show "⋀j. j ∈ seenR_run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s) 
+            ⟹ oR_on j = ((!) (enc as s kk)) j"
+    proof -
+      fix j assume j_seen: "j ∈ seenR_run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s)"
+    (* unseenR shows this set is disjoint from blockR_abs *)
+      have "j ∉ blockR_abs enc0 as s kk jR"
+        using unseenR j_seen by blast
+      thus "oR_on j = ((!) (enc as s kk)) j"
+        using oR_on_agree by blast
+    qed
+  qed
 
   have "run oL_no oR_off (T as s) = run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s)"
-  sorry (* AXIOM: run_agree_on_seen for both oracles changing *)
+  proof (rule run_agree_on_seen(1)[symmetric])
+    show "⋀i. i ∈ seenL_run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s) 
+            ⟹ oL_no i = ((!) (enc as s kk)) i"
+    proof -
+      fix i assume i_seen: "i ∈ seenL_run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s)"
+      have "seenL_run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s) 
+            ⊆ Base.read0 M (enc as s kk)"
+        unfolding T_def by (rule seenL_tm_to_dtr_subset_read0)
+      hence "i ∈ Base.read0 M (enc as s kk)"
+        using i_seen by blast
+      thus "oL_no i = ((!) (enc as s kk)) i"
+        using oL_no_agree by blast
+    qed
+    show "⋀j. j ∈ seenR_run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s) 
+            ⟹ oR_off j = ((!) (enc as s kk)) j"
+    proof -
+      fix j assume j_seen: "j ∈ seenR_run ((!) (enc as s kk)) ((!) (enc as s kk)) (T as s)"
+    (* unseenR shows this set is disjoint from blockR_abs *)
+      have "j ∉ blockR_abs enc0 as s kk jR"
+        using unseenR j_seen by blast
+      thus "oR_off j = ((!) (enc as s kk)) j"
+        using oR_off_agree by blast
+    qed
+  qed
 
 (* So tree gives same answer for both oracle pairs *)
   hence same_run: "run oL_has oR_on (T as s) = run oL_no oR_off (T as s)"
@@ -1499,6 +2712,7 @@ qed
 lemma every_L_block_touched_v2:
   assumes n_ge2: "n ≥ 2"
       and kk_bounds: "1 ≤ kk" "kk < n"
+      and kk_slack: "2 * kk < n"
       and distinct: "distinct_subset_sums as"
       and len: "length as = n"
       and hit: "∃v ∈ set (enumL as s kk). v ∈ set (enumR as s kk)"
@@ -1513,7 +2727,7 @@ proof (rule ccontr)
   hence "∃jL. jL < length (enumL as s kk) ∧
               Base.read0 M (enc as s kk) ∩ blockL_abs enc0 as s jL = {}" by simp
   thus False 
-    using coverage_by_oracle_contradiction_v2[OF n_ge2 kk_bounds distinct len hit miss _ unread_R] 
+    using coverage_by_oracle_contradiction_v2[OF n_ge2 kk_bounds kk_slack distinct len hit miss _ unread_R] 
     by blast
 qed
 
@@ -1521,6 +2735,7 @@ qed
 lemma every_R_block_touched_v2:
   assumes n_ge2: "n ≥ 2"
       and kk_bounds: "1 ≤ kk" "kk < n"
+      and kk_large: "kk > n - kk"  (* ADD THIS *)
       and distinct: "distinct_subset_sums as"
       and len: "length as = n"
       and hit: "∃v ∈ set (enumR as s kk). v ∈ set (enumL as s kk)"
@@ -1535,15 +2750,59 @@ proof (rule ccontr)
   hence "∃jR. jR < length (enumR as s kk) ∧
               Base.read0 M (enc as s kk) ∩ blockR_abs enc0 as s kk jR = {}" by simp
   thus False 
-    using coverage_by_oracle_contradiction_R_v2[OF n_ge2 kk_bounds distinct len hit miss _ unread_L]
+    using coverage_by_oracle_contradiction_R_v2[OF n_ge2 kk_bounds kk_large distinct 
+          len hit miss _ unread_L]
     by blast
 qed
+
+lemma Rval_at_unchanged_other_blocks:
+  assumes jR_bound: "jR < length (enumR as s kk)"
+      and jR'_bound: "jR' < length (enumR as s kk)"
+      and jR'_diff: "jR' ≠ jR"
+      and outside_same: "⋀i. i ∉ blockR_abs enc0 as s kk jR ⟹ oR' i = ((!) (enc as s kk)) i"
+  shows "Rval_at as s oR' jR' = Rval_at as s ((!) (enc as s kk)) jR'"
+proof -
+  define base_jR' where "base_jR' = length (enc0 as s) + offR as s kk jR'"
+  
+  have "Rval_at as s oR' jR' = from_bits (map oR' [base_jR' ..< base_jR' + W as s])"
+    unfolding Rval_at_def base_jR'_def by simp
+  
+  also have "... = from_bits (map ((!) (enc as s kk)) [base_jR' ..< base_jR' + W as s])"
+  proof -
+    have "map oR' [base_jR' ..< base_jR' + W as s] = 
+          map ((!) (enc as s kk)) [base_jR' ..< base_jR' + W as s]"
+    proof (rule map_cong[OF refl])
+      fix i assume i_in: "i ∈ set [base_jR' ..< base_jR' + W as s]"
+      hence i_range: "base_jR' ≤ i" "i < base_jR' + W as s" by auto
+      
+      have i_in_block_jR': "i ∈ blockR_abs enc0 as s kk jR'"
+        unfolding blockR_abs_def using i_range base_jR'_def by simp
+      
+      have "i ∉ blockR_abs enc0 as s kk jR"
+      proof
+        assume "i ∈ blockR_abs enc0 as s kk jR"
+        hence "blockR_abs enc0 as s kk jR ∩ blockR_abs enc0 as s kk jR' ≠ {}"
+          using i_in_block_jR' by blast
+        thus False using blockR_abs_disjoint[of jR jR' enc0 as s kk] jR'_diff by blast
+      qed
+      
+      thus "oR' i = ((!) (enc as s kk)) i" using outside_same by blast
+    qed
+    thus ?thesis by presburger
+  qed
+  
+  also have "... = Rval_at as s ((!) (enc as s kk)) jR'"
+    unfolding Rval_at_def base_jR'_def by simp
+  
+  finally show ?thesis .
+qed 
 
 lemma oracle_flip_changes_good_R:
   assumes jR_bound: "jR < length (enumR as s kk)"
       and two_rhs: "2 ≤ card (set (enumR as s kk))"
       and hit: "∃v ∈ set (enumR as s kk). v ∈ set (enumL as s kk)"
       and miss: "∃v ∈ set (enumR as s kk). v ∉ set (enumL as s kk)"
+      and unique: "card (set (enumL as s kk) ∩ set (enumR as s kk)) = 1"  (* ADD THIS *)
   shows "∃oR'. (∀i. i ∉ blockR_abs enc0 as s kk jR ⟶ 
                      oR' i = (enc as s kk) ! i) ∧
                good as s ((!) (enc as s kk)) oR' ≠ 
@@ -1633,7 +2892,40 @@ proof -
                         Lval_at as s ((!) (enc as s kk)) jL ≠ Rval_at as s oR' jR"
       using val_miss by fastforce
   
-    show ?thesis sorry (* Same structure as L-block True case *)
+    (* Show good becomes false *)
+    have "¬ good as s ((!) (enc as s kk)) oR'"
+    proof
+      assume "good as s ((!) (enc as s kk)) oR'"
+      then obtain jL jR' where 
+        jL_bound: "jL < length (enumL as s kk)" and
+        jR'_bound: "jR' < length (enumR as s kk)" and
+        match: "Lval_at as s ((!) (enc as s kk)) jL = Rval_at as s oR' jR'"
+        unfolding good_def by blast
+      
+      show False
+      proof (cases "jR' = jR")
+        case True
+        (* Match at the flipped block contradicts no_match_jR *)
+        have "Lval_at as s ((!) (enc as s kk)) jL ≠ Rval_at as s oR' jR"
+          using no_match_jR jL_bound by blast
+        thus False using match True by simp
+      next
+        case False
+        (* Match at a different block - this block is unchanged from original *)
+        have "Rval_at as s oR' jR' = Rval_at as s ((!) (enc as s kk)) jR'"
+          using Rval_at_unchanged_other_blocks[OF jR_bound jR'_bound False] outside_same
+          by blast
+        
+        (* So the match existed in the original, contradicting True *)
+        have "Lval_at as s ((!) (enc as s kk)) jL = Rval_at as s ((!) (enc as s kk)) jR'"
+          using match by (simp add: ‹Rval_at as s oR' jR' = Rval_at as s ((!) (enc as s kk)) jR'›)
+        hence "good as s ((!) (enc as s kk)) ((!) (enc as s kk))"
+          unfolding good_def using jL_bound jR'_bound by blast
+        thus False using True by simp
+      qed
+    qed
+    
+    thus ?thesis using True by simp
   
   next
     case False
@@ -1802,6 +3094,7 @@ theorem coverage_blocks:
 theorem coverage_blocks_v2:
   assumes n_ge2: "n ≥ 2"
       and kk_bounds: "1 ≤ kk" "kk < n"
+      and kk_slack: "2 * kk < n"  (* ADD THIS LINE *)
       and distinct: "distinct_subset_sums as"
       and len: "length as = n"
       and hit_L: "∃v ∈ set (enumL as s kk). v ∈ set (enumR as s kk)"
@@ -1828,7 +3121,7 @@ proof (rule ccontr)
   
   (* This contradicts coverage for L-blocks *)
   show False
-    using coverage_by_oracle_contradiction_v2[OF n_ge2 kk_bounds distinct len 
+    using coverage_by_oracle_contradiction_v2[OF n_ge2 kk_bounds kk_slack distinct len 
                                                 hit_L miss_L _ all_R_unread]
     using all_L_unread
     by (meson length_pos_if_in_set miss_L)
